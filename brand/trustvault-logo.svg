@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 420" width="256" height="256"
+     role="img" aria-label="TrustVault - secure document sharing">
+  <title>TrustVault</title>
+  <desc>A monitor screen with a verified check badge inside it and a padlock replacing its top-right corner.</desc>
+
+  <defs>
+    <!-- Cuts a real, transparent gap in the monitor frame around the padlock,
+         so the lock is not merely painted on top of the frame. -->
+    <mask id="tvGap" maskUnits="userSpaceOnUse" x="0" y="0" width="420" height="420">
+      <rect width="420" height="420" fill="#fff"/>
+      <rect x="250" y="0" width="170" height="222" fill="#000"/>
+    </mask>
+
+    <!-- Punches the keyhole out of the padlock body. -->
+    <mask id="tvKeyhole" maskUnits="userSpaceOnUse" x="0" y="0" width="420" height="420">
+      <rect width="420" height="420" fill="#fff"/>
+      <rect x="322" y="134" width="26" height="46" rx="13" fill="#000"/>
+    </mask>
+  </defs>
+
+  <!-- Everything paints with currentColor: set `color` on the SVG or on a parent to recolour it. -->
+  <g fill="currentColor">
+
+    <!-- 1. Monitor frame (mask removes its top-right corner for the padlock). -->
+    <rect mask="url(#tvGap)" x="16" y="16" width="388" height="290" rx="28"
+          fill="none" stroke="currentColor" stroke-width="32" stroke-linejoin="round"/>
+
+    <!-- 2. Stand: flared neck + flat base with rounded ends. -->
+    <path d="M140 300 H280 L289 392 H131 Z"/>
+    <rect x="91" y="391" width="238" height="29" rx="14"/>
+
+    <!-- 3. Verified badge: ring broken at the upper right... -->
+    <path d="M152.9 105 A67 67 0 1 0 194.7 150.7"
+          fill="none" stroke="currentColor" stroke-width="30" stroke-linecap="round"/>
+    <!-- ...with the check's long arm reaching into that break. -->
+    <path d="M88 178 L120 210 L180 146" fill="none" stroke="currentColor" stroke-width="32"
+          stroke-linecap="round" stroke-linejoin="round"/>
+
+    <!-- 4. Padlock: shackle, then a solid body with a transparent keyhole. -->
+    <path d="M295 100 V60 A40 40 0 0 1 375 60 V100"
+          fill="none" stroke="currentColor" stroke-width="32" stroke-linecap="round"/>
+    <rect mask="url(#tvKeyhole)" x="252" y="94" width="168" height="126" rx="30"/>
+
+  </g>
+</svg>

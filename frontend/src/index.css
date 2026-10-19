@@ -1,0 +1,355 @@
+/* ==========================================================================
+   TrustVault — Global Design System
+   ==========================================================================
+   This file is the single source of truth for the TrustVault design system.
+
+   Structure:
+   1. Google Fonts import (Inter)
+   2. Tailwind v4 import
+   3. @theme — brand colour tokens and spacing/radius/shadow tokens
+   4. Base layer — html/body reset, scrollbar, focus styles
+   5. Utility layer — component-level utility classes
+   ========================================================================== */
+
+/* 1. Typography — Inter from Google Fonts */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+/* 2. Tailwind v4 */
+@import "tailwindcss";
+
+/* 3. Brand design tokens
+   All tv-* tokens are available as:
+     - Tailwind utility classes (bg-tv-carbon, text-tv-mint, border-tv-border, …)
+     - CSS custom properties (var(--color-tv-carbon), var(--color-tv-mint), …)
+   ========================================================================== */
+@theme {
+  /* ── Colour palette ──────────────────────────────────────────────── */
+
+  /* Backgrounds */
+  --color-tv-carbon:      #101312;   /* Main application background          */
+  --color-tv-charcoal:    #191F1C;   /* Cards, sidebars, panels, dialogs     */
+
+  /* Primary accent */
+  --color-tv-mint:        #57F2B3;   /* Primary buttons, selected nav, focus */
+  --color-tv-mint-soft:   #A2FFD6;   /* Secondary accents, decorative        */
+  --color-tv-mint-dim:    #2AAB7A;   /* Pressed/active state of mint         */
+
+  /* Text */
+  --color-tv-text:        #F3F7F4;   /* Primary text on dark surfaces        */
+  --color-tv-muted:       #A4AEA8;   /* Secondary text, descriptions, labels */
+
+  /* Structural */
+  --color-tv-border:      #303A34;   /* Borders, dividers, subtle outlines   */
+  --color-tv-surface:     #1E2620;   /* Hover surfaces, slightly lifted bg   */
+
+  /* Semantic states */
+  --color-tv-error:       #FF6B75;   /* Errors, denied access, destructive   */
+  --color-tv-warning:     #FFC66D;   /* Warnings, pending actions            */
+  --color-tv-success:     #57F2B3;   /* Success (same as mint)               */
+
+  /* ── Typography ──────────────────────────────────────────────────── */
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+
+  /* Type scale — used via Tailwind text-* utilities */
+  --text-2xs: 0.625rem;   /* 10px — fine print                              */
+  --text-xs:  0.75rem;    /* 12px — labels, badges                          */
+  --text-sm:  0.875rem;   /* 14px — secondary body, table cells             */
+  --text-base: 1rem;      /* 16px — primary body copy                       */
+  --text-lg:  1.125rem;   /* 18px — emphasis, card titles                   */
+  --text-xl:  1.25rem;    /* 20px — section headings                        */
+  --text-2xl: 1.5rem;     /* 24px — page headings                           */
+  --text-3xl: 1.875rem;   /* 30px — major page titles                       */
+  --text-4xl: 2.25rem;    /* 36px — hero / display (use sparingly)          */
+
+  /* ── Spacing ─────────────────────────────────────────────────────── */
+  /* Tailwind's default spacing scale is used — no override needed.   */
+  /* Custom semantic spacing values:                                   */
+  --spacing-sidebar: 15rem;   /* 240px — sidebar width                      */
+  --spacing-topbar:  3.5rem;  /* 56px  — top navigation bar height          */
+
+  /* ── Border radius ───────────────────────────────────────────────── */
+  --radius-sm:   0.25rem;   /* 4px  — subtle rounding on table rows, tags  */
+  --radius-md:   0.5rem;    /* 8px  — buttons, inputs, small cards         */
+  --radius-lg:   0.75rem;   /* 12px — panels, dialogs, feature cards       */
+  --radius-xl:   1rem;      /* 16px — use sparingly                        */
+  --radius-full: 9999px;    /* Pill badges, avatar circles                 */
+
+  /* ── Shadows ─────────────────────────────────────────────────────── */
+  --shadow-sm:  0 1px 2px 0 rgb(0 0 0 / 0.4);
+  --shadow-md:  0 4px 6px -1px rgb(0 0 0 / 0.5), 0 2px 4px -2px rgb(0 0 0 / 0.4);
+  --shadow-lg:  0 10px 15px -3px rgb(0 0 0 / 0.5), 0 4px 6px -4px rgb(0 0 0 / 0.4);
+  --shadow-mint: 0 0 0 3px rgb(87 242 179 / 0.25);   /* Mint focus ring    */
+}
+
+/* 4. Base layer — reset and global defaults
+   ========================================================================== */
+@layer base {
+  *, *::before, *::after {
+    box-sizing: border-box;
+    border-color: var(--color-tv-border);
+  }
+
+  html {
+    font-family: var(--font-sans);
+    font-size: 16px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background-color: var(--color-tv-carbon);
+    color: var(--color-tv-text);
+    min-height: 100dvh;
+    margin: 0;
+  }
+
+  /* Accessible focus indicator using Electric Mint */
+  :focus-visible {
+    outline: 2px solid var(--color-tv-mint);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+
+  /* Scrollbar — subtle, consistent with the dark theme */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: var(--color-tv-carbon);
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-tv-border);
+    border-radius: var(--radius-full);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-tv-muted);
+  }
+
+  /* Headings */
+  h1, h2, h3, h4, h5, h6 {
+    font-weight: 600;
+    line-height: 1.2;
+    color: var(--color-tv-text);
+    letter-spacing: -0.01em;
+  }
+
+  h1 { font-size: var(--text-3xl); }
+  h2 { font-size: var(--text-2xl); }
+  h3 { font-size: var(--text-xl);  }
+  h4 { font-size: var(--text-lg);  }
+  h5 { font-size: var(--text-base); font-weight: 500; }
+  h6 { font-size: var(--text-sm);  font-weight: 500; }
+
+  p {
+    color: var(--color-tv-text);
+    line-height: 1.6;
+    margin: 0;
+  }
+
+  a {
+    color: var(--color-tv-mint);
+    text-decoration: none;
+    transition: color 150ms ease;
+  }
+  a:hover {
+    color: var(--color-tv-mint-soft);
+  }
+
+  code, pre {
+    font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+    font-size: 0.875em;
+  }
+
+  /* Remove default list styles when used for navigation */
+  nav ul, nav ol {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  /* Accessible selection colour */
+  ::selection {
+    background-color: rgb(87 242 179 / 0.2);
+    color: var(--color-tv-text);
+  }
+}
+
+/* 5. Utility layer — shared component classes
+   These are design-system primitives reused across pages.
+   ========================================================================== */
+@layer components {
+
+  /* ── Buttons ──────────────────────────────────────────────────────── */
+
+  /* Primary action button — Electric Mint fill */
+  .btn-primary {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    background-color: var(--color-tv-mint);
+    color: #0D1210;                        /* Dark text on mint for contrast */
+    font-size: var(--text-sm);
+    font-weight: 600;
+    border-radius: var(--radius-md);
+    border: none;
+    cursor: pointer;
+    transition: background-color 150ms ease, transform 100ms ease;
+    user-select: none;
+    white-space: nowrap;
+  }
+  .btn-primary:hover {
+    background-color: var(--color-tv-mint-soft);
+  }
+  .btn-primary:active {
+    background-color: var(--color-tv-mint-dim);
+    transform: translateY(1px);
+  }
+  .btn-primary:disabled {
+    background-color: var(--color-tv-border);
+    color: var(--color-tv-muted);
+    cursor: not-allowed;
+    transform: none;
+  }
+
+  /* Secondary / ghost button — outlined */
+  .btn-secondary {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    background-color: transparent;
+    color: var(--color-tv-text);
+    font-size: var(--text-sm);
+    font-weight: 500;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-tv-border);
+    cursor: pointer;
+    transition: border-color 150ms ease, background-color 150ms ease;
+    user-select: none;
+    white-space: nowrap;
+  }
+  .btn-secondary:hover {
+    border-color: var(--color-tv-mint);
+    background-color: rgb(87 242 179 / 0.06);
+  }
+  .btn-secondary:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  /* Destructive button — Soft Red */
+  .btn-danger {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    background-color: transparent;
+    color: var(--color-tv-error);
+    font-size: var(--text-sm);
+    font-weight: 500;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-tv-error);
+    cursor: pointer;
+    transition: background-color 150ms ease;
+    user-select: none;
+  }
+  .btn-danger:hover {
+    background-color: rgb(255 107 117 / 0.1);
+  }
+
+  /* ── Form Controls ────────────────────────────────────────────────── */
+
+  .form-input {
+    display: block;
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    background-color: var(--color-tv-carbon);
+    color: var(--color-tv-text);
+    font-size: var(--text-sm);
+    border: 1px solid var(--color-tv-border);
+    border-radius: var(--radius-md);
+    transition: border-color 150ms ease;
+    outline: none;
+  }
+  .form-input::placeholder {
+    color: var(--color-tv-muted);
+  }
+  .form-input:focus {
+    border-color: var(--color-tv-mint);
+    box-shadow: var(--shadow-mint);
+  }
+
+  .form-label {
+    display: block;
+    margin-bottom: 0.375rem;
+    font-size: var(--text-sm);
+    font-weight: 500;
+    color: var(--color-tv-text);
+  }
+
+  /* ── Cards and Surfaces ───────────────────────────────────────────── */
+
+  .card {
+    background-color: var(--color-tv-charcoal);
+    border: 1px solid var(--color-tv-border);
+    border-radius: var(--radius-lg);
+    padding: 1.25rem 1.5rem;
+  }
+
+  /* ── Badges ───────────────────────────────────────────────────────── */
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.125rem 0.5rem;
+    font-size: var(--text-xs);
+    font-weight: 500;
+    border-radius: var(--radius-full);
+    border: 1px solid transparent;
+  }
+  .badge-success {
+    background-color: rgb(87 242 179 / 0.1);
+    color: var(--color-tv-mint);
+    border-color: rgb(87 242 179 / 0.25);
+  }
+  .badge-error {
+    background-color: rgb(255 107 117 / 0.1);
+    color: var(--color-tv-error);
+    border-color: rgb(255 107 117 / 0.25);
+  }
+  .badge-warning {
+    background-color: rgb(255 198 109 / 0.1);
+    color: var(--color-tv-warning);
+    border-color: rgb(255 198 109 / 0.25);
+  }
+  .badge-neutral {
+    background-color: rgb(164 174 168 / 0.1);
+    color: var(--color-tv-muted);
+    border-color: rgb(164 174 168 / 0.2);
+  }
+
+  /* ── Dividers ─────────────────────────────────────────────────────── */
+
+  .divider {
+    height: 1px;
+    background-color: var(--color-tv-border);
+    border: none;
+    margin: 0;
+  }
+
+  /* ── Section title ────────────────────────────────────────────────── */
+
+  .section-title {
+    font-size: var(--text-xs);
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-tv-muted);
+  }
+}

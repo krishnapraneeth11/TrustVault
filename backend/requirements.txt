@@ -1,0 +1,9 @@
+Django==5.2
+djangorestframework==3.16.0
+django-cors-headers==4.7.0
+python-dotenv==1.1.0
+psycopg2-binary==2.9.10
+Pillow==11.2.1
+pytest==8.3.5
+pytest-django==4.10.0
+coverage==7.8.0

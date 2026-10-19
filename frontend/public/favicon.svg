@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 420" width="32" height="32">
+  <!--
+    TrustVault favicon — simplified padlock mark derived from the brand logo.
+    Uses Electric Mint (#57F2B3) on a Carbon Black (#101312) background.
+  -->
+  <rect width="420" height="420" fill="#101312" rx="80"/>
+  <defs>
+    <mask id="fvKeyhole" maskUnits="userSpaceOnUse" x="0" y="0" width="420" height="420">
+      <rect width="420" height="420" fill="#fff"/>
+      <rect x="167" y="222" width="86" height="86" rx="43" fill="#000"/>
+    </mask>
+  </defs>
+  <!-- Shackle -->
+  <path d="M140 198 V130 A70 70 0 0 1 280 130 V198"
+        fill="none" stroke="#57F2B3" stroke-width="44" stroke-linecap="round"/>
+  <!-- Body with keyhole punched out -->
+  <rect mask="url(#fvKeyhole)" x="60" y="188" width="300" height="200" rx="44" fill="#57F2B3"/>
+</svg>
