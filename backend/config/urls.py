@@ -7,6 +7,8 @@ from django.urls import path, include
 
 urlpatterns = [
     path("admin/", admin.site.urls),
-    # API routes will be registered here as applications are built:
-    # path("api/", include("apps.api.urls")),
+    path("api/", include("apps.accounts.urls")),
+    # Future apps:
+    # path("api/", include("apps.documents.urls")),
+    # path("api/", include("apps.audit.urls")),
 ]

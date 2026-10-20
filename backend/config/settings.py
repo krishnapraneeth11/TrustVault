@@ -12,6 +12,7 @@ Never commit a real .env file.
 import os
 from pathlib import Path
 
+from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
@@ -22,20 +23,37 @@ load_dotenv(BASE_DIR.parent / ".env")
 
 
 # ── Core ──────────────────────────────────────────────────────────────────────
-SECRET_KEY = os.environ.get(
-    "DJANGO_SECRET_KEY",
-    # Fallback for initial local setup only — set a real key in .env for any
-    # deployment.  This default must never be used in production.
-    "django-insecure-CHANGE-ME-set-DJANGO_SECRET_KEY-in-dot-env",
-)
+_INSECURE_FALLBACK_KEY = "django-insecure-CHANGE-ME-set-DJANGO_SECRET_KEY-in-dot-env"
+
+SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", _INSECURE_FALLBACK_KEY)
 
 DEBUG = os.environ.get("DJANGO_DEBUG", "True").strip().lower() in ("true", "1", "yes")
+
+# Guard: refuse to start in production with the insecure fallback key.
+if not DEBUG and SECRET_KEY == _INSECURE_FALLBACK_KEY:
+    raise ImproperlyConfigured(
+        "DJANGO_SECRET_KEY must be set to a secure random value in production. "
+        "Run: python -c \"from django.core.management.utils import get_random_secret_key; "
+        "print(get_random_secret_key())\" and set the result in your .env file."
+    )
 
 ALLOWED_HOSTS: list[str] = [
     h.strip()
     for h in os.environ.get("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
     if h.strip()
 ]
+
+# CSRF trusted origins — must match the frontend origin for session authentication.
+CSRF_TRUSTED_ORIGINS: list[str] = [
+    o.strip()
+    for o in os.environ.get("CSRF_TRUSTED_ORIGINS", "http://localhost:5173").split(",")
+    if o.strip()
+]
+
+
+# ── Custom User Model ─────────────────────────────────────────────────────────
+# Must be set before the first migration. Changing this later requires a DB reset.
+AUTH_USER_MODEL = "accounts.User"
 
 
 # ── Installed Apps ─────────────────────────────────────────────────────────────
@@ -50,10 +68,10 @@ INSTALLED_APPS = [
     # Third-party
     "rest_framework",
     "corsheaders",
-    # TrustVault applications (registered here in advance; modules created later)
-    # "apps.accounts",
-    # "apps.documents",
-    # "apps.audit",
+    # TrustVault applications
+    "apps.accounts",
+    # "apps.documents",  # future
+    # "apps.audit",      # future
 ]
 
 

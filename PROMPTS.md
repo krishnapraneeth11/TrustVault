@@ -64,15 +64,85 @@ The developer requested:
 
 ### Problems Found
 
-- *(To be filled in after execution — any genuine errors will be recorded here.)*
+- pip install exited with code 1 due to PowerShell treating pip's `[notice]` upgrade message on stderr as an error. All 16 packages installed successfully — not a real failure.
+- pytest `--co` exited with code 1 with "no tests collected" — expected, no tests existed yet.
 
 ### Corrections Made
 
-- *(To be filled in after execution.)*
+- None in Task 1 — the build, check, and migrate all passed cleanly.
 
 ### Git Commit Reference
 
-- *(No commit exists yet. The developer must run `git init` and make the first commit.)*
+- `766c21c` — "Task 1: project foundation, branding and design system"
+- `.gitattributes` was added in the same commit to enforce LF line endings.
+
+---
+
+## Entry 002 — 2026-10-20
+
+### Task
+
+Secret Key Configuration + Task 2: Secure Authentication and Role Foundation.
+
+### What Was Requested
+
+1. Create `.env` with a freshly generated `DJANGO_SECRET_KEY`.
+2. Implement a custom `User` model with `role` field (ADMIN, OWNER, VIEWER).
+3. Django session authentication: login, logout, current-user, CSRF endpoints.
+4. DRF role-based permission classes (`IsAdmin`, `IsOwnerOrAdmin`).
+5. React login page using the design system.
+6. React auth context with `useAuth` hook.
+7. Protected route component.
+8. Minimal dashboard page.
+9. 14 automated backend tests.
+10. Updated documentation.
+
+### Implementation Approach
+
+**Secret key**: Generated via `get_random_secret_key()`, written directly into `.env`  
+(not printed in the report or visible in source code).
+
+**Custom user model**: Created `backend/apps/accounts/` with a `User` extending `AbstractUser`.  
+Added `role` field with `TextChoices` (ADMIN/OWNER/VIEWER). Local SQLite database was reset because  
+changing `AUTH_USER_MODEL` requires a clean migration state — the existing database contained  
+only disposable auto-generated local tables from Task 1.
+
+**Authentication**: Django session auth + CSRF. DRF's `SessionAuthentication` enforces CSRF on  
+authenticated endpoints (logout, me). The login endpoint uses `authentication_classes = []` and  
+`permission_classes = [AllowAny]` — CSRF is not enforced on it (standard practice for SPA login flows).
+
+**Frontend**: Added `react-router-dom` v7. Created `AuthContext` with `useAuth` hook, `LoginPage`,  
+`DashboardPage`, `ProtectedRoute`, and `src/api/client.ts` (CSRF-aware fetch wrapper).  
+API base URL configurable via `VITE_API_BASE_URL` in `frontend/.env.local`.
+
+### Checks Performed
+
+- `python manage.py check` — 0 issues.
+- `python manage.py makemigrations accounts` — created `0001_initial.py`.
+- `python manage.py migrate` — 19 migrations applied.
+- `pytest backend/apps/accounts/tests/test_auth.py -v` — **14/14 passed**.
+- `npm run build` — **30 modules, 0 TypeScript errors**.
+- `git check-ignore .env`, `git ls-files .env`, `git status` — `.env` confirmed untracked.
+
+### Problems Found and Corrections Made
+
+1. **Test 14 initial failure**: The first version of test 14 tested `LoginView` CSRF enforcement  
+   without first fetching the CSRF cookie. DRF marks `APIView` as `csrf_exempt` at the middleware  
+   level and re-enforces CSRF only through `SessionAuthentication`. `LoginView` has  
+   `authentication_classes = []`, so no CSRF enforcement at the view level. The test was corrected  
+   to verify CSRF enforcement on the `LogoutView` (which uses `SessionAuthentication`) — this is the  
+   accurate behaviour. All 14 tests then passed.
+
+2. **TypeScript error TS1294**: TypeScript 7 with `erasableSyntaxOnly` forbids constructor parameter  
+   properties (`public readonly status: number`). Fixed by expanding to an explicit class property  
+   declaration in `ApiError`.
+
+3. **TypeScript error TS1484**: `FormEvent` must be imported as `import type` when  
+   `verbatimModuleSyntax` is enabled. Fixed with `import { type FormEvent, ... }`.
+
+### Git Commit Reference
+
+- Not committed yet — awaiting developer review.
 
 ---
 

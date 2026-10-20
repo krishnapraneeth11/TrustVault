@@ -143,7 +143,10 @@ or to grant themselves additional permissions on a document they do not own.
 - Object ownership verified before any permission mutation is allowed.
 - Tests for each role attempting to access out-of-scope endpoints.
 
-**Status**: 🔷 Planned — user model and role field not yet created.
+**Status**: ✅ Implemented — `IsAdmin` and `IsOwnerOrAdmin` DRF permission classes in  
+`apps/accounts/permissions.py`. Role field excluded from all writable serialiser fields.  
+Tests 9, 10, 11, and 12 verify role enforcement and confirm a user cannot self-promote.  
+Document-level ownership checks will be added in Task 3 when document endpoints are created.
 
 ---
 
@@ -163,7 +166,11 @@ or to grant themselves additional permissions on a document they do not own.
 - Session ID rotated on login to prevent fixation.
 - Sessions expire after a configurable idle timeout.
 
-**Status**: 🔷 Planned — session settings will be configured when auth is implemented.
+**Status**: ✅ Implemented — `SESSION_COOKIE_HTTPONLY = True` and `SESSION_COOKIE_SAMESITE = 'Lax'`  
+are set in `settings.py`. Django's `login()` call rotates the session ID on login (built-in to  
+Django's auth framework). `SESSION_COOKIE_SECURE = True` is documented but commented out pending  
+HTTPS configuration. Session expiry will be configured when deployment is prepared.  
+Remaining limitation: brute-force rate limiting is not yet implemented (see T-07 notes).
 
 ---
 
@@ -184,8 +191,13 @@ or to grant themselves additional permissions on a document they do not own.
 - `CORS_ALLOWED_ORIGINS` set to an explicit allowlist — never `'*'` in production.
 - `CORS_ALLOW_CREDENTIALS = True` combined with the allowlist.
 
-**Status**: ⚠️ Partially planned — CORS and CSRF middleware are included in settings;
-explicit allowlist values are supplied via environment variable. Full testing is pending.
+**Status**: ✅ Implemented — CSRF middleware is active. DRF's `SessionAuthentication` enforces  
+CSRF on all authenticated state-changing endpoints. `GET /api/auth/csrf/` endpoint issues the  
+CSRF cookie to the SPA; the React API client sends `X-CSRFToken` on all POST requests.  
+`CORS_ALLOWED_ORIGINS` is env-var driven (`http://localhost:5173` by default). Wildcard CORS  
+is never used. `CSRF_TRUSTED_ORIGINS` added to `settings.py`. Test 14 verifies CSRF enforcement.  
+Remaining limitation: login endpoint itself is not CSRF-protected (standard practice for  
+cookie-based SPA login — no session exists before first login, so no CSRF token can be set).
 
 ---
 
@@ -212,7 +224,10 @@ Custom exception handler is not yet implemented.
 
 ## Additional Threats (Noted for Future Analysis)
 
-- **Brute-force login**: Rate limiting and account lockout — 🔷 Planned.
+- **Brute-force login**: Rate limiting and account lockout — 🔷 Planned. The login endpoint currently  
+  has no rate limiting. `django-ratelimit` or a reverse-proxy solution (nginx, Cloudflare) should be  
+  added before production deployment. The generic error response prevents username enumeration, which  
+  reduces but does not eliminate brute-force risk.
 - **Insecure password reset**: Secure token, expiry, single-use — 🔷 Planned.
 - **Dependency vulnerabilities**: `pip audit`, `npm audit` in CI — 🔷 Planned.
 - **SQL injection**: Django ORM used exclusively; raw queries will be reviewed — 🔷 Planned.
