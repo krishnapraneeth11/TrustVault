@@ -117,6 +117,40 @@ class DocumentUploadTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data), 0)
+    def test_viewer_upload_is_denied_and_audited(self):
+        viewer = User.objects.create_user(
+            username="upload_viewer",
+            email="upload_viewer@example.com",
+            password="Strong-Test-Pass-593!",
+            role=User.Role.VIEWER,
+        )
+
+        self.client.force_authenticate(user=viewer)
+
+        response = self.client.post(
+            self.upload_url,
+            {
+                "title": "Unauthorized Policy",
+                "category": "POLICIES",
+                "upload": self.make_text_file(),
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+        self.assertEqual(Document.objects.count(), 0)
+
+        self.assertTrue(
+            AuditEvent.objects.filter(
+                actor=viewer,
+                action="DOCUMENT_UPLOAD",
+                outcome=AuditEvent.Outcome.DENIED,
+            ).exists()
+        )
 class DocumentPermissionSecurityTests(APITestCase):
     def setUp(self):
         self.owner = User.objects.create_user(
@@ -365,6 +399,44 @@ class DocumentPermissionSecurityTests(APITestCase):
             self.document.owner,
             self.owner,
         )
+    def test_revoked_permission_immediately_blocks_download(self):
+        permission_record = DocumentPermission.objects.create(
+            document=self.document,
+            user=self.viewer,
+            access_level=DocumentPermission.AccessLevel.READ,
+            granted_by=self.owner,
+        )
+
+        # Confirm the viewer initially has access.
+        self.client.force_authenticate(user=self.viewer)
+        initial_response = self.client.get(self.download_url)
+
+        # The test document has no real file, so a 404 is expected
+        # after authorization succeeds. We test revocation below.
+        self.assertEqual(
+            initial_response.status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+
+        # The owner revokes the viewer's permission.
+        self.client.force_authenticate(user=self.owner)
+        revoke_response = self.client.delete(
+            f"{self.permissions_url}{permission_record.pk}/"
+        )
+
+        self.assertEqual(
+            revoke_response.status_code,
+            status.HTTP_204_NO_CONTENT,
+        )
+
+        # The viewer must now be denied before file access.
+        self.client.force_authenticate(user=self.viewer)
+        denied_response = self.client.get(self.download_url)
+
+        self.assertEqual(
+            denied_response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
 class DocumentAuditTests(APITestCase):
     def setUp(self):
         self.owner = User.objects.create_user(
@@ -592,4 +664,23 @@ class DocumentAuditTests(APITestCase):
 
         self.assertTrue(
             Document.objects.filter(pk=self.document.pk).exists()
+        )
+    def test_missing_file_download_creates_failure_audit_event(self):
+        self.client.force_authenticate(user=self.owner)
+
+        response = self.client.get(self.download_url)
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+
+        self.assertTrue(
+            AuditEvent.objects.filter(
+                actor=self.owner,
+                action="DOCUMENT_DOWNLOAD",
+                outcome=AuditEvent.Outcome.FAILURE,
+                document_id=str(self.document.pk),
+                details__reason="stored_file_unavailable",
+            ).exists()
         )

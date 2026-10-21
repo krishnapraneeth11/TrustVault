@@ -105,23 +105,19 @@ class DocumentListCreateView(generics.ListCreateAPIView):
 
         # Only owners and administrators can upload documents.
         if getattr(user, "role", None) not in {"OWNER", "ADMIN"} and not user.is_staff:
+            audit_denied(
+                self.request,
+                "DOCUMENT_UPLOAD",
+                details={
+                    "reason": "insufficient_role",
+                    "user_role": getattr(user, "role", None),
+                },
+            )
             raise PermissionDenied(
                 "Only document owners and administrators can upload documents."
             )
 
         document = serializer.save()
-
-        record_audit_event(
-            request=self.request,
-            action="DOCUMENT_UPLOAD",
-            outcome=AuditEvent.Outcome.SUCCESS,
-            document_id=document.pk,
-            details={
-                "filename": document.original_filename,
-                "category": document.category,
-                "file_size": document.file_size,
-            },
-        )
 
 
 class DocumentDetailView(APIView):
@@ -222,6 +218,15 @@ class DocumentDownloadView(APIView):
         )
 
         if not document.file:
+            record_audit_event(
+                request=request,
+                action="DOCUMENT_DOWNLOAD",
+                outcome=AuditEvent.Outcome.FAILURE,
+                document_id=document.pk,
+                details={
+                    "reason": "missing_file_reference",
+                },
+            )
             return Response(
                 {"detail": "This document has no stored file."},
                 status=status.HTTP_404_NOT_FOUND,
@@ -230,6 +235,15 @@ class DocumentDownloadView(APIView):
         try:
             file_handle = document.file.open("rb")
         except (FileNotFoundError, OSError):
+            record_audit_event(
+                request=request,
+                action="DOCUMENT_DOWNLOAD",
+                outcome=AuditEvent.Outcome.FAILURE,
+                document_id=document.pk,
+                details={
+                    "reason": "stored_file_unavailable",
+                },
+            )
             return Response(
                 {"detail": "The stored file could not be found."},
                 status=status.HTTP_404_NOT_FOUND,
