@@ -70,8 +70,8 @@ INSTALLED_APPS = [
     "corsheaders",
     # TrustVault applications
     "apps.accounts",
-    # "apps.documents",  # future
-    # "apps.audit",      # future
+    "apps.documents",
+    "apps.audit",
 ]
 
 

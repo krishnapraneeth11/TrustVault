@@ -59,7 +59,7 @@ frontend/.vite/
 # ── Private documents / uploads ──────────────────────────────────────
 uploads/
 private_media/
-documents/
+/backend/documents/
 
 # ── OS / Editor ──────────────────────────────────────────────────────
 .DS_Store
