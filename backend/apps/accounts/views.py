@@ -1,58 +1,34 @@
 """
-TrustVault authentication views.
+TrustVault authentication and user-management views.
 
-Endpoints
----------
-GET  /api/auth/csrf/    — Set the CSRF cookie; return the token. SPA must call
-                          this before any state-changing request.
-POST /api/auth/login/   — Session login. Returns user data on success.
-POST /api/auth/logout/  — Session invalidation.
-GET  /api/auth/me/      — Current authenticated user data.
-GET  /api/auth/admin/   — Admin-only probe endpoint (for testing role guards).
-
-Security notes
---------------
-- Login uses Django's authenticate() — passwords are never stored or logged.
-- Login failure returns a generic 400 message (does not leak whether the
-  username or email exists).
-- Logout uses flush() to destroy the session completely, not just clear it.
-- All state-changing endpoints enforce CSRF via Django's CsrfViewMiddleware.
-- The SPA must send cookies with credentials: "include" for session auth.
-- Role is read from the database; it cannot be provided by the client.
+All role checks and temporary-password restrictions are enforced server-side.
 """
 
-import json
-
 from django.contrib.auth import authenticate, login, logout
-from django.http import JsonResponse
 from django.middleware.csrf import get_token
-from django.views import View
-from django.views.decorators.http import require_GET
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import ensure_csrf_cookie
-from rest_framework import status
+from django.db import transaction
+
+from drf_spectacular.utils import extend_schema, OpenApiResponse
+from rest_framework import serializers, status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from drf_spectacular.utils import extend_schema, OpenApiResponse
-from rest_framework import serializers
 
 from .models import User
+from apps.audit.models import AuditEvent
+from apps.audit.services import record_audit_event
 from .permissions import IsAdmin
-from .serializers import UserSerializer
+from .serializers import (
+    AdminCreateUserSerializer,
+    ChangePasswordSerializer,
+    ProfileUpdateSerializer,
+    UserSerializer,
+)
 
 
 class CsrfTokenView(APIView):
-    """
-    GET /api/auth/csrf/
-
-    Sets the CSRF cookie and returns the token in the response body.
-    The SPA must call this endpoint once before making any POST/PUT/DELETE
-    requests. The token should be sent as the X-CSRFToken request header.
-
-    Authentication not required (AllowAny).
-    """
-
     authentication_classes = []
     permission_classes = [AllowAny]
 
@@ -67,20 +43,10 @@ class CsrfTokenView(APIView):
     )
     @method_decorator(ensure_csrf_cookie)
     def get(self, request):
-        token = get_token(request)
-        return Response({"csrfToken": token})
+        return Response({"csrfToken": get_token(request)})
 
 
 class LoginView(APIView):
-    """
-    POST /api/auth/login/
-
-    Body: {"username": "...", "password": "..."}
-
-    Success (200): returns the authenticated user object.
-    Failure (400): returns a generic invalid-credentials error.
-    """
-
     permission_classes = [AllowAny]
 
     @extend_schema(
@@ -104,7 +70,6 @@ class LoginView(APIView):
         },
     )
     def post(self, request):
-        # DRF parses the request body safely.
         body = request.data
 
         if not isinstance(body, dict):
@@ -128,13 +93,16 @@ class LoginView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        user = authenticate(
-            request,
-            username=username,
-            password=password,
-        )
+        user = authenticate(request, username=username, password=password)
 
         if user is None:
+            # Never log the supplied password or disclose whether the username exists.
+            record_audit_event(
+                request=request,
+                action="LOGIN",
+                outcome=AuditEvent.Outcome.DENIED,
+                details={"username": username, "reason": "invalid_credentials"},
+            )
             return Response(
                 {"detail": "Invalid credentials."},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -147,13 +115,13 @@ class LoginView(APIView):
             )
 
         login(request, user)
-
-        serializer = UserSerializer(user)
-
-        return Response(
-            serializer.data,
-            status=status.HTTP_200_OK,
+        record_audit_event(
+            request=request,
+            action="LOGIN",
+            outcome=AuditEvent.Outcome.SUCCESS,
+            details={"username": user.get_username()},
         )
+        return Response(UserSerializer(user).data, status=status.HTTP_200_OK)
 
 
 class LogoutResponseSerializer(serializers.Serializer):
@@ -161,13 +129,6 @@ class LogoutResponseSerializer(serializers.Serializer):
 
 
 class LogoutView(APIView):
-    """
-    POST /api/auth/logout/
-
-    Invalidates the current session completely.
-    Requires authentication.
-    """
-
     permission_classes = [IsAuthenticated]
     serializer_class = LogoutResponseSerializer
 
@@ -175,53 +136,251 @@ class LogoutView(APIView):
         tags=["auth"],
         operation_id="auth_logout",
         summary="Log out",
-        description="Invalidates the authenticated user's session.",
         responses={
             200: LogoutResponseSerializer,
-            403: OpenApiResponse(
-                description="Authentication required.",
-            ),
+            403: OpenApiResponse(description="Authentication required."),
         },
     )
     def post(self, request):
+        # Record the authenticated actor before logout clears the session.
+        record_audit_event(
+            request=request,
+            action="LOGOUT",
+            outcome=AuditEvent.Outcome.SUCCESS,
+            details={},
+        )
         logout(request)
+        return Response({"detail": "Logged out."}, status=status.HTTP_200_OK)
 
+
+class MeView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=["auth"], summary="Get current user", responses={200: UserSerializer}
+    )
+    def get(self, request):
+        return Response(UserSerializer(request.user).data)
+
+
+class ProfileView(APIView):
+    """Read or update the current user's own profile."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        return Response(UserSerializer(request.user).data)
+
+    def patch(self, request):
+        serializer = ProfileUpdateSerializer(
+            request.user,
+            data=request.data,
+            partial=True,
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(UserSerializer(request.user).data)
+
+
+class ChangePasswordView(APIView):
+    """Change the current user's password and end other sessions."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = ChangePasswordSerializer(
+            data=request.data,
+            context={"request": request},
+        )
+        serializer.is_valid(raise_exception=True)
+
+        user = request.user
+        user.set_password(serializer.validated_data["new_password"])
+        user.must_change_password = False
+        user.save(update_fields=["password", "must_change_password"])
+
+        # Keep the current session valid after the password change.
+        from django.contrib.auth import update_session_auth_hash
+
+        update_session_auth_hash(request, user)
+
+        record_audit_event(
+            request=request,
+            action="PASSWORD_CHANGE",
+            outcome=AuditEvent.Outcome.SUCCESS,
+            details={"must_change_password_cleared": True},
+        )
+        return Response({"detail": "Password changed successfully."})
+
+
+class TemporaryPasswordRestrictionMiddleware:
+    """
+    Note: this class is not Django middleware. The API-level restriction is
+    applied by TemporaryPasswordGate below.
+    """
+
+
+class TemporaryPasswordGate(APIView):
+    """Base class for views that require a password change first."""
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+
+        if (
+            request.user.is_authenticated
+            and request.user.must_change_password
+            and request.path.rstrip("/") != "/api/auth/change-password"
+        ):
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied(
+                "You must change your temporary password before continuing."
+            )
+
+
+class AdminUserListCreateView(TemporaryPasswordGate):
+    """Admin-only employee listing and account creation."""
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def get(self, request):
+        users = User.objects.all().order_by("username")
+        return Response(UserSerializer(users, many=True).data)
+
+    def post(self, request):
+        serializer = AdminCreateUserSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+
+        # Never include the temporary password in audit details.
+        record_audit_event(
+            request=request,
+            action="USER_CREATE",
+            outcome=AuditEvent.Outcome.SUCCESS,
+            details={
+                "created_user_id": user.pk,
+                "username": user.get_username(),
+                "role": user.role,
+            },
+        )
         return Response(
-            {"detail": "Logged out."},
+            UserSerializer(user).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class AdminUserStatusView(TemporaryPasswordGate):
+    """Admin-only account activation/deactivation."""
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def patch(self, request, user_id):
+        try:
+            target = User.objects.get(pk=user_id)
+        except User.DoesNotExist:
+            return Response(
+                {"detail": "User not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if target.pk == request.user.pk:
+            return Response(
+                {
+                    "detail": "You cannot deactivate or reactivate your own account here."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        is_active = request.data.get("is_active")
+
+        if not isinstance(is_active, bool):
+            return Response(
+                {"detail": "is_active must be true or false."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        previous_is_active = target.is_active
+        target.is_active = is_active
+        target.save(update_fields=["is_active"])
+
+        record_audit_event(
+            request=request,
+            action="USER_STATUS_CHANGE",
+            outcome=AuditEvent.Outcome.SUCCESS,
+            details={
+                "target_user_id": target.pk,
+                "username": target.get_username(),
+                "previous_is_active": previous_is_active,
+                "is_active": is_active,
+            },
+        )
+        return Response(UserSerializer(target).data)
+
+
+class AdminUserDeleteView(TemporaryPasswordGate):
+    """Admin-only permanent deletion of an employee account."""
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    @transaction.atomic
+    def delete(self, request, user_id):
+        try:
+            target = User.objects.select_for_update().get(pk=user_id)
+        except User.DoesNotExist:
+            return Response(
+                {"detail": "User not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if target.pk == request.user.pk:
+            return Response(
+                {"detail": "You cannot delete your own account."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if target.is_superuser:
+            return Response(
+                {
+                    "detail": "Superuser accounts cannot be deleted through this endpoint."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if target.owned_documents.exists():
+            return Response(
+                {
+                    "detail": (
+                        "This account owns documents. Transfer ownership "
+                        "before deleting the account."
+                    ),
+                    "code": "user_owns_documents",
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        username = target.username
+        deleted_user_id = target.pk
+        target.delete()
+
+        record_audit_event(
+            request=request,
+            action="USER_DELETE",
+            outcome=AuditEvent.Outcome.SUCCESS,
+            details={
+                "deleted_user_id": deleted_user_id,
+                "username": username,
+            },
+        )
+        return Response(
+            {
+                "detail": f"Account '{username}' was permanently deleted.",
+                "deleted_user_id": user_id,
+            },
             status=status.HTTP_200_OK,
         )
 
 
-class MeView(APIView):
-    """
-    GET /api/auth/me/
-
-    Returns the current authenticated user's data.
-    Unauthenticated requests receive 403.
-    """
-
-    permission_classes = [IsAuthenticated]
-
-    @extend_schema(
-        tags=["auth"],
-        summary="Get current user",
-        responses={200: UserSerializer},
-    )
-    def get(self, request):
-        serializer = UserSerializer(request.user)
-        return Response(serializer.data)
-
-
-class AdminProbeView(APIView):
-    """
-    GET /api/auth/admin/
-
-    Admin-only endpoint used to verify role-based access control.
-    Returns 403 for non-Admin authenticated users and 403 for unauthenticated
-    requests (DRF returns 403 when IsAuthenticated is the base class and the
-    user fails; IsAdmin adds the role check on top).
-    """
-
+class AdminProbeView(TemporaryPasswordGate):
     permission_classes = [IsAuthenticated, IsAdmin]
 
     @extend_schema(

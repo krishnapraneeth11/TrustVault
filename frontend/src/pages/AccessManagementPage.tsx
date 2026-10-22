@@ -7,10 +7,9 @@ import type {
   DocumentPermission,
 } from '../api/client';
 import { useAuth } from '../contexts/AuthContext';
-import TrustVaultLogo from '../components/TrustVaultLogo';
 
 export default function AccessManagementPage() {
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
 
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [selectedDocumentId, setSelectedDocumentId] = useState('');
@@ -153,69 +152,36 @@ export default function AccessManagementPage() {
     }
   }
 
-  async function handleLogout() {
-    try {
-      await logout();
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : 'Sign out failed.',
-      );
-    }
-  }
+
 
   return (
-    <div className="min-h-screen bg-tv-carbon text-tv-text font-sans">
-      <header className="border-b border-tv-border bg-tv-charcoal">
-        <div className="max-w-5xl mx-auto px-6 h-16 flex items-center gap-3">
-          <TrustVaultLogo size={28} color="mint" />
-          <span className="font-semibold">TrustVault</span>
-
-          <a
-            href="/"
-            className="ml-6 text-sm text-tv-muted hover:text-tv-text"
-          >
-            Dashboard
-          </a>
-
-          <span className="ml-auto text-sm text-tv-muted">
-            {user?.username}
-          </span>
-
-          <button
-            type="button"
-            onClick={() => void handleLogout()}
-            className="btn-secondary text-xs py-2 px-3"
-          >
-            Sign out
-          </button>
-        </div>
-      </header>
-
-      <main className="max-w-5xl mx-auto px-6 py-8">
-        <h1 className="text-2xl font-semibold">
-          Access Management
-        </h1>
+    <div className="min-w-0">
+      <div className="mx-auto max-w-7xl">
+        <div className="mb-8 rounded-2xl border border-tv-border bg-gradient-to-br from-tv-charcoal via-tv-charcoal to-tv-mint/[0.06] p-5 sm:p-7">
+          <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-tv-mint/25 bg-tv-mint/10 px-3 py-1 text-xs font-medium text-tv-mint">
+            <span className="h-1.5 w-1.5 rounded-full bg-tv-mint" /> PERMISSION CONTROL
+          </div>
+          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Access Management</h1>
 
         <p className="text-sm text-tv-muted mt-2 mb-8">
           Manage document permissions and control who can access your files.
-        </p>
+          </p>
+        </div>
 
         {error && (
-          <div role="alert" className="card mb-5 text-tv-danger">
+          <div role="alert" className="mb-5 rounded-xl border border-tv-danger/50 bg-tv-danger/10 p-4 text-sm text-tv-danger">
             {error}
           </div>
         )}
 
         {notice && (
-          <div role="status" className="card mb-5">
+          <div role="status" className="mb-5 rounded-xl border border-tv-mint/25 bg-tv-mint/5 p-4 text-sm">
             {notice}
           </div>
         )}
 
-        <section className="card mb-6">
-          <h2 className="text-lg font-semibold mb-4">
+        <section className="tv-dashboard-panel mb-6 rounded-2xl p-5 sm:p-6">
+          <h2 className="mb-4 text-lg font-semibold tracking-tight">
             Select a document
           </h2>
 
@@ -227,7 +193,7 @@ export default function AccessManagementPage() {
             </p>
           ) : (
             <select
-              className="input w-full"
+              className="input w-full transition focus:border-tv-mint focus:ring-2 focus:ring-tv-mint/15"
               value={selectedDocumentId}
               onChange={(event) => {
                 setSelectedDocumentId(event.target.value);
@@ -252,8 +218,8 @@ export default function AccessManagementPage() {
 
         {selectedDocumentId && (
           <>
-            <section className="card mb-6">
-              <h2 className="text-lg font-semibold mb-4">
+            <section className="tv-dashboard-panel mb-6 rounded-2xl p-5 sm:p-6">
+              <h2 className="mb-4 text-lg font-semibold tracking-tight">
                 Grant access
               </h2>
 
@@ -265,7 +231,7 @@ export default function AccessManagementPage() {
                   Username
 
                   <input
-                    className="input mt-2 w-full"
+                    className="input mt-2 w-full transition focus:border-tv-mint focus:ring-2 focus:ring-tv-mint/15"
                     value={username}
                     onChange={(event) => setUsername(event.target.value)}
                     placeholder="Enter an existing username"
@@ -277,7 +243,7 @@ export default function AccessManagementPage() {
                   Permission level
 
                   <select
-                    className="input mt-2 w-full"
+                    className="input mt-2 w-full transition focus:border-tv-mint focus:ring-2 focus:ring-tv-mint/15"
                     value={accessLevel}
                     onChange={(event) =>
                       setAccessLevel(event.target.value as AccessLevel)
@@ -291,7 +257,7 @@ export default function AccessManagementPage() {
                 <div className="flex items-end">
                   <button
                     type="submit"
-                    className="btn-primary px-5 py-2 w-full"
+                    className="btn-primary w-full px-5 py-2 shadow-lg shadow-tv-mint/10"
                     disabled={saving || !selectedDocumentId}
                   >
                     {saving ? 'Processing…' : 'Grant access'}
@@ -305,8 +271,8 @@ export default function AccessManagementPage() {
               </p>
             </section>
 
-            <section className="card">
-              <h2 className="text-lg font-semibold mb-4">
+            <section className="tv-dashboard-panel rounded-2xl p-5 sm:p-6">
+              <h2 className="mb-4 text-lg font-semibold tracking-tight">
                 Current permissions
               </h2>
 
@@ -316,9 +282,9 @@ export default function AccessManagementPage() {
                 </p>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left text-sm">
+                  <table className="w-full min-w-[560px] text-left text-sm">
                     <thead>
-                      <tr className="border-b border-tv-border text-tv-muted">
+                      <tr className="border-b border-tv-border bg-tv-charcoal/50 text-tv-muted">
                         <th className="py-3 pr-4">Username</th>
                         <th className="py-3 pr-4">Access</th>
                         <th className="py-3 pr-4">Granted</th>
@@ -330,14 +296,14 @@ export default function AccessManagementPage() {
                       {permissions.map((permission) => (
                         <tr
                           key={permission.id}
-                          className="border-b border-tv-border last:border-0"
+                          className="border-b border-tv-border/70 transition-colors last:border-0 hover:bg-tv-mint/[0.035]"
                         >
                           <td className="py-4 pr-4">
                             {permission.username}
                           </td>
 
                           <td className="py-4 pr-4">
-                            <span className="badge badge-neutral">
+                            <span className="badge badge-neutral rounded-full px-3 py-1">
                               {permission.access_level}
                             </span>
                           </td>
@@ -351,7 +317,7 @@ export default function AccessManagementPage() {
                           <td className="py-4">
                             <button
                               type="button"
-                              className="btn-secondary text-xs px-3 py-2"
+                              className="btn-secondary px-3 py-2 text-xs transition hover:border-tv-danger/50 hover:text-tv-danger"
                               disabled={saving}
                               onClick={() =>
                                 void handleRevoke(permission)
@@ -369,7 +335,8 @@ export default function AccessManagementPage() {
             </section>
           </>
         )}
-      </main>
+
+      </div>
     </div>
   );
 }

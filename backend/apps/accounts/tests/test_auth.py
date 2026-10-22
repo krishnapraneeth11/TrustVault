@@ -28,11 +28,13 @@ Notes
 import pytest
 from django.contrib.auth import get_user_model
 from django.test import Client, TestCase
+from apps.audit.models import AuditEvent
 
 User = get_user_model()
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
+
 
 def make_user(username, password, role=User.Role.VIEWER, email=None):
     """Create and return an active user with the given role."""
@@ -50,6 +52,7 @@ def make_user(username, password, role=User.Role.VIEWER, email=None):
 def login(client, username, password):
     """POST to the login endpoint and return the response."""
     import json
+
     return client.post(
         "/api/auth/login/",
         data=json.dumps({"username": username, "password": password}),
@@ -58,6 +61,7 @@ def login(client, username, password):
 
 
 # ── Test Cases ─────────────────────────────────────────────────────────────────
+
 
 class AuthTests(TestCase):
     """Core authentication tests."""
@@ -178,13 +182,16 @@ class AuthTests(TestCase):
         The role in the response must match the database value, not the request.
         """
         import json
+
         response = self.client.post(
             "/api/auth/login/",
-            data=json.dumps({
-                "username": "viewer",
-                "password": self.password,
-                "role": "ADMIN",  # Attacker-supplied role — must be ignored
-            }),
+            data=json.dumps(
+                {
+                    "username": "viewer",
+                    "password": self.password,
+                    "role": "ADMIN",  # Attacker-supplied role — must be ignored
+                }
+            ),
             content_type="application/json",
         )
         self.assertEqual(response.status_code, 200)
@@ -227,6 +234,7 @@ class AuthTests(TestCase):
         This test verifies the SessionAuthentication CSRF enforcement on logout.
         """
         import json
+
         csrf_client = Client(enforce_csrf_checks=True)
 
         # Step 1: Log in (no CSRF needed for the login endpoint itself)
@@ -257,3 +265,209 @@ class AuthTests(TestCase):
             200,
             "Logout WITH correct CSRF token should succeed.",
         )
+
+    # ── New tests: Temporary passwords and account management ─────────────
+
+    def test_15_temporary_password_user_cannot_access_documents(self):
+        """A temporary-password user must change their password first."""
+        self.viewer.must_change_password = True
+        self.viewer.save(update_fields=["must_change_password"])
+
+        response = login(self.client, "viewer", self.password)
+        self.assertEqual(response.status_code, 200)
+
+        response = self.client.get("/api/documents/")
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(
+            response.json()["code"],
+            "password_change_required",
+        )
+
+    def test_16_temporary_password_user_can_change_password(self):
+        """The password-change endpoint remains accessible."""
+        self.viewer.must_change_password = True
+        self.viewer.save(update_fields=["must_change_password"])
+
+        response = login(self.client, "viewer", self.password)
+        self.assertEqual(response.status_code, 200)
+
+        response = self.client.post(
+            "/api/auth/change-password/",
+            data={
+                "current_password": self.password,
+                "new_password": "A-new-strong-password-83!",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        self.viewer.refresh_from_db()
+        self.assertFalse(self.viewer.must_change_password)
+        self.assertTrue(self.viewer.check_password("A-new-strong-password-83!"))
+
+    def test_17_document_access_restored_after_password_change(self):
+        """After changing the password, normal API authorization resumes."""
+        self.viewer.must_change_password = True
+        self.viewer.save(update_fields=["must_change_password"])
+
+        response = login(self.client, "viewer", self.password)
+        self.assertEqual(response.status_code, 200)
+
+        response = self.client.post(
+            "/api/auth/change-password/",
+            data={
+                "current_password": self.password,
+                "new_password": "A-new-strong-password-83!",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+
+        response = self.client.get("/api/documents/")
+
+        # A normal Viewer may list only documents they are authorized to see.
+        self.assertEqual(response.status_code, 200)
+
+    def test_18_viewer_cannot_create_employee_accounts(self):
+        """A Viewer must not be able to create another user."""
+        response = login(self.client, "viewer", self.password)
+        self.assertEqual(response.status_code, 200)
+
+        response = self.client.post(
+            "/api/auth/users/",
+            data={
+                "username": "new_employee",
+                "email": "new_employee@trustvault.test",
+                "role": "VIEWER",
+                "temporary_password": "A-strong-temporary-password-83!",
+            },
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(User.objects.filter(username="new_employee").exists())
+
+    def test_19_admin_can_create_employee_account(self):
+        """An Admin can create an account with a temporary password."""
+        response = login(self.client, "admin_user", self.password)
+        self.assertEqual(response.status_code, 200)
+
+        response = self.client.post(
+            "/api/auth/users/",
+            data={
+                "username": "new_employee",
+                "email": "new_employee@trustvault.test",
+                "role": "VIEWER",
+                "temporary_password": "A-strong-temporary-password-83!",
+            },
+        )
+
+        self.assertEqual(response.status_code, 201)
+
+        employee = User.objects.get(username="new_employee")
+        self.assertEqual(employee.role, User.Role.VIEWER)
+        self.assertTrue(employee.must_change_password)
+        self.assertTrue(employee.check_password("A-strong-temporary-password-83!"))
+
+        # The password must never be included in the API response.
+        self.assertNotIn("temporary_password", response.json())
+        self.assertNotIn("password", response.json())
+
+    def test_20_profile_update_cannot_change_user_role(self):
+        """A user cannot promote themselves through profile updates."""
+        response = login(self.client, "viewer", self.password)
+        self.assertEqual(response.status_code, 200)
+
+        response = self.client.patch(
+            "/api/auth/profile/",
+            data={
+                "first_name": "Updated",
+                "email": "updated_viewer@trustvault.test",
+                "role": "ADMIN",
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        self.viewer.refresh_from_db()
+        self.assertEqual(self.viewer.first_name, "Updated")
+        self.assertEqual(
+            self.viewer.email,
+            "updated_viewer@trustvault.test",
+        )
+        self.assertEqual(self.viewer.role, User.Role.VIEWER)
+
+    def test_21_successful_login_is_audited(self):
+        response = login(self.client, "viewer", self.password)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(
+            AuditEvent.objects.filter(
+                actor=self.viewer,
+                action="LOGIN",
+                outcome=AuditEvent.Outcome.SUCCESS,
+                details__username="viewer",
+            ).exists()
+        )
+
+    def test_22_failed_login_is_audited_without_password(self):
+        response = login(self.client, "viewer", "wrong-password")
+        self.assertEqual(response.status_code, 400)
+        event = AuditEvent.objects.get(
+            actor__isnull=True,
+            action="LOGIN",
+            outcome=AuditEvent.Outcome.DENIED,
+            details__username="viewer",
+        )
+        self.assertNotIn("password", event.details)
+        self.assertEqual(event.details.get("reason"), "invalid_credentials")
+
+    def test_23_logout_is_audited(self):
+        login(self.client, "viewer", self.password)
+        response = self.client.post("/api/auth/logout/")
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(
+            AuditEvent.objects.filter(
+                actor=self.viewer,
+                action="LOGOUT",
+                outcome=AuditEvent.Outcome.SUCCESS,
+            ).exists()
+        )
+
+    def test_24_password_change_is_audited(self):
+        login(self.client, "viewer", self.password)
+        response = self.client.post(
+            "/api/auth/change-password/",
+            data={
+                "current_password": self.password,
+                "new_password": "A-new-strong-password-83!",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        event = AuditEvent.objects.get(
+            actor=self.viewer,
+            action="PASSWORD_CHANGE",
+            outcome=AuditEvent.Outcome.SUCCESS,
+        )
+        self.assertNotIn("password", event.details)
+        self.assertNotIn("new_password", event.details)
+
+    def test_25_employee_creation_is_audited_without_temporary_password(self):
+        login(self.client, "admin_user", self.password)
+        response = self.client.post(
+            "/api/auth/users/",
+            data={
+                "username": "audited_employee",
+                "email": "audited_employee@trustvault.test",
+                "role": "VIEWER",
+                "temporary_password": "A-strong-temporary-password-83!",
+            },
+        )
+        self.assertEqual(response.status_code, 201)
+        event = AuditEvent.objects.get(
+            actor=self.admin,
+            action="USER_CREATE",
+            outcome=AuditEvent.Outcome.SUCCESS,
+            details__username="audited_employee",
+        )
+        self.assertNotIn("password", event.details)
+        self.assertNotIn("temporary_password", event.details)

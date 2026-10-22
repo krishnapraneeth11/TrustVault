@@ -57,6 +57,7 @@ class DocumentUploadTests(APITestCase):
 
     @override_settings(MEDIA_ROOT=tempfile.mkdtemp(prefix="trustvault-test-media-"))
     def test_authenticated_user_can_upload_text_file(self):
+
         self.client.force_authenticate(user=self.owner)
 
         response = self.client.post(
@@ -77,6 +78,53 @@ class DocumentUploadTests(APITestCase):
         self.assertEqual(document.title, "Security Policy")
         self.assertEqual(document.original_filename, "policy.txt")
         self.assertEqual(document.file_size, len(b"Sample policy text"))
+
+    @override_settings(
+        MEDIA_ROOT=tempfile.mkdtemp(prefix="trustvault-audit-test-media-")
+    )
+    def test_successful_upload_creates_audit_event(self):
+        self.client.force_authenticate(user=self.owner)
+
+        response = self.client.post(
+            self.upload_url,
+            {
+                "title": "Audited Security Policy",
+                "category": "POLICIES",
+                "upload": self.make_text_file(
+                    name="audited-policy.txt",
+                    content=b"Audited policy content",
+                ),
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        document = Document.objects.get(title="Audited Security Policy")
+
+        audit_events = AuditEvent.objects.filter(
+            actor=self.owner,
+            action="DOCUMENT_UPLOAD",
+            outcome=AuditEvent.Outcome.SUCCESS,
+            document_id=str(document.pk),
+        )
+
+        self.assertEqual(
+            audit_events.count(),
+            1,
+            "A successful document upload should create exactly one success audit event.",
+        )
+
+        event = audit_events.get()
+
+        self.assertEqual(
+            event.details.get("filename"),
+            "audited-policy.txt",
+        )
+        self.assertEqual(
+            event.details.get("file_size"),
+            len(b"Audited policy content"),
+        )
 
     def test_unsupported_extension_is_rejected(self):
         self.client.force_authenticate(user=self.owner)
@@ -317,13 +365,13 @@ class DocumentPermissionSecurityTests(APITestCase):
             status.HTTP_403_FORBIDDEN,
         )
 
-        def test_read_permission_cannot_edit_document_metadata(self):
-            DocumentPermission.objects.create(
-                document=self.document,
-                user=self.viewer,
-                access_level=DocumentPermission.AccessLevel.READ,
-                granted_by=self.owner,
-            )
+    def test_read_permission_cannot_edit_document_metadata(self):
+        DocumentPermission.objects.create(
+            document=self.document,
+            user=self.viewer,
+            access_level=DocumentPermission.AccessLevel.READ,
+            granted_by=self.owner,
+        )
 
         self.client.force_authenticate(user=self.viewer)
 

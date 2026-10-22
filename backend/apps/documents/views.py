@@ -104,6 +104,11 @@ class DocumentListCreateView(generics.ListCreateAPIView):
             .distinct()
         )
 
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["request"] = self.request
+        return context
+
     def perform_create(self, serializer):
         user = self.request.user
 
@@ -117,11 +122,26 @@ class DocumentListCreateView(generics.ListCreateAPIView):
                     "user_role": getattr(user, "role", None),
                 },
             )
+
             raise PermissionDenied(
                 "Only document owners and administrators can upload documents."
             )
 
+        # Save the uploaded document.
         document = serializer.save()
+
+        # Record the successful upload.
+        record_audit_event(
+            request=self.request,
+            action="DOCUMENT_UPLOAD",
+            outcome=AuditEvent.Outcome.SUCCESS,
+            document_id=document.pk,
+            details={
+                "filename": document.original_filename,
+                "file_size": document.file_size,
+                "category": document.category,
+            },
+        )
 
 
 class DocumentDetailView(APIView):
@@ -143,7 +163,10 @@ class DocumentDetailView(APIView):
             "READ",
         )
 
-        serializer = DocumentDetailSerializer(document)
+        serializer = DocumentDetailSerializer(
+            document,
+            context={"request": request},
+        )
 
         record_audit_event(
             request=request,
@@ -176,6 +199,7 @@ class DocumentDetailView(APIView):
                 document,
                 data=request.data,
                 partial=True,
+                context={"request": request},
             )
             serializer.is_valid(raise_exception=True)
             serializer.save()

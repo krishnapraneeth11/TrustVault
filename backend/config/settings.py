@@ -84,6 +84,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",  # CSRF protection — do not remove
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "apps.accounts.middleware.TemporaryPasswordMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]

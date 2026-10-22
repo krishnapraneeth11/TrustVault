@@ -111,6 +111,7 @@ class DocumentUploadSerializer(serializers.ModelSerializer):
         source="owner.username",
         read_only=True,
     )
+    current_user_access = serializers.SerializerMethodField()
 
     class Meta:
         model = Document
@@ -124,6 +125,7 @@ class DocumentUploadSerializer(serializers.ModelSerializer):
             "content_type",
             "file_size",
             "created_at",
+            "current_user_access",
         )
         read_only_fields = (
             "id",
@@ -132,7 +134,30 @@ class DocumentUploadSerializer(serializers.ModelSerializer):
             "content_type",
             "file_size",
             "created_at",
+            "current_user_access",
         )
+
+    def get_current_user_access(self, obj):
+        request = self.context.get("request")
+
+        if not request or not request.user.is_authenticated:
+            return None
+
+        user = request.user
+
+        if obj.owner_id == user.pk:
+            return "OWNER"
+
+        permission = (
+            DocumentPermission.objects.filter(
+                document=obj,
+                user=user,
+            )
+            .values_list("access_level", flat=True)
+            .first()
+        )
+
+        return permission
 
     def validate_upload(self, uploaded_file):
         filename = Path(uploaded_file.name).name
@@ -187,6 +212,7 @@ class DocumentDetailSerializer(serializers.ModelSerializer):
         source="owner.username",
         read_only=True,
     )
+    current_user_access = serializers.SerializerMethodField()
 
     class Meta:
         model = Document
@@ -200,6 +226,7 @@ class DocumentDetailSerializer(serializers.ModelSerializer):
             "file_size",
             "created_at",
             "updated_at",
+            "current_user_access",
         )
         read_only_fields = (
             "id",
@@ -209,7 +236,30 @@ class DocumentDetailSerializer(serializers.ModelSerializer):
             "file_size",
             "created_at",
             "updated_at",
+            "current_user_access",
         )
+
+    def get_current_user_access(self, obj):
+        request = self.context.get("request")
+
+        if not request or not request.user.is_authenticated:
+            return None
+
+        user = request.user
+
+        if obj.owner_id == user.pk:
+            return "OWNER"
+
+        permission = (
+            DocumentPermission.objects.filter(
+                document=obj,
+                user=user,
+            )
+            .values_list("access_level", flat=True)
+            .first()
+        )
+
+        return permission
 
 
 class DocumentPermissionSerializer(serializers.ModelSerializer):

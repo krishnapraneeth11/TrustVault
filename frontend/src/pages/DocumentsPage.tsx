@@ -1,7 +1,4 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
-
-import TrustVaultLogo from '../components/TrustVaultLogo';
 import { documentsApi } from '../api/client';
 
 import type {
@@ -34,7 +31,7 @@ const formatDate = (value: string): string =>
   });
 
 export default function DocumentsPage() {
-  const { user, logout, loading: authLoading } = useAuth();
+  const { user } = useAuth();
 
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [search, setSearch] = useState('');
@@ -51,6 +48,14 @@ export default function DocumentsPage() {
 
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [editingDocument, setEditingDocument] =
+    useState<DocumentItem | null>(null);
+
+  const [editTitle, setEditTitle] = useState('');
+  const [editCategory, setEditCategory] =
+    useState<DocumentCategory>('GENERAL');
+
+  const [savingEdit, setSavingEdit] = useState(false);
 
   const canUpload =
     user?.role === 'OWNER' ||
@@ -139,6 +144,47 @@ export default function DocumentsPage() {
       setActiveAction(null);
     }
   }
+  function startEditing(documentItem: DocumentItem) {
+    setEditingDocument(documentItem);
+    setEditTitle(documentItem.title);
+    setEditCategory(documentItem.category);
+    setError('');
+    setNotice('');
+  }
+  async function handleSaveEdit(
+    event: React.FormEvent<HTMLFormElement>,
+  ) {
+    event.preventDefault();
+
+    if (!editingDocument || !editTitle.trim()) {
+      setError('Enter a document title.');
+      return;
+    }
+
+    setSavingEdit(true);
+    setError('');
+    setNotice('');
+
+    try {
+      await documentsApi.update(editingDocument.id, {
+        title: editTitle.trim(),
+        category: editCategory,
+      });
+
+      setEditingDocument(null);
+      setNotice('Document updated successfully.');
+
+      await loadDocuments();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Could not update the document.',
+      );
+    } finally {
+      setSavingEdit(false);
+    }
+  }
 
   async function handleDelete(documentItem: DocumentItem) {
     const confirmed = window.confirm(
@@ -170,17 +216,7 @@ export default function DocumentsPage() {
     }
   }
 
-  async function handleLogout() {
-    try {
-      await logout();
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : 'Sign out failed.',
-      );
-    }
-  }
+
 
   const filteredDocuments = documents.filter((item) => {
     const query = search.trim().toLowerCase();
@@ -199,43 +235,11 @@ export default function DocumentsPage() {
   });
 
   return (
-    <div className="min-h-screen bg-tv-carbon text-tv-text font-sans">
-      <header className="border-b border-tv-border bg-tv-charcoal">
-        <div className="max-w-6xl mx-auto px-6 h-16 flex items-center gap-3">
-          <TrustVaultLogo
-            size={28}
-            color="mint"
-            aria-label="TrustVault"
-          />
-
-          <span className="font-semibold">TrustVault</span>
-
-          <Link
-            to="/dashboard"
-            className="ml-6 text-sm text-tv-muted hover:text-tv-text"
-          >
-            Dashboard
-          </Link>
-
-          <span className="ml-auto text-sm text-tv-muted">
-            {user?.username}
-          </span>
-
-          <button
-            type="button"
-            onClick={() => void handleLogout()}
-            disabled={authLoading}
-            className="btn-secondary text-xs py-2 px-3"
-          >
-            Sign out
-          </button>
-        </div>
-      </header>
-
-      <main className="max-w-6xl mx-auto px-6 py-8">
-        <div className="flex flex-wrap justify-between items-start gap-4 mb-8">
+    <div className="min-w-0">
+      <div className="mx-auto max-w-7xl">
+        <div className="mb-8 flex flex-wrap items-start justify-between gap-4 rounded-2xl border border-tv-border bg-gradient-to-br from-tv-charcoal via-tv-charcoal to-tv-mint/[0.06] p-5 sm:p-7">
           <div>
-            <h1 className="text-2xl font-semibold">
+            <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
               My Documents
             </h1>
 
@@ -244,7 +248,7 @@ export default function DocumentsPage() {
             </p>
           </div>
 
-          <span className="badge badge-neutral">
+          <span className="badge badge-neutral rounded-full px-3 py-1">
             {documents.length} documents
           </span>
         </div>
@@ -252,7 +256,7 @@ export default function DocumentsPage() {
         {error && (
           <div
             role="alert"
-            className="mb-5 rounded-lg border border-tv-danger p-4 text-sm"
+            className="mb-5 rounded-xl border border-tv-danger/50 bg-tv-danger/10 p-4 text-sm"
           >
             {error}
           </div>
@@ -261,15 +265,76 @@ export default function DocumentsPage() {
         {notice && (
           <div
             role="status"
-            className="mb-5 rounded-lg border border-tv-border p-4 text-sm"
+            className="mb-5 rounded-xl border border-tv-mint/25 bg-tv-mint/5 p-4 text-sm"
           >
             {notice}
           </div>
         )}
+        {editingDocument && (
+          <section className="tv-dashboard-panel mb-8 rounded-2xl p-5 sm:p-6">
+          <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold tracking-tight">
+            Edit document
+          </h2>
+
+          <form
+            onSubmit={handleSaveEdit}
+            className="grid grid-cols-1 md:grid-cols-2 gap-4"
+          >
+            <label className="text-sm">
+              Document title
+
+              <input
+                className="input mt-2 w-full transition focus:border-tv-mint focus:ring-2 focus:ring-tv-mint/15"
+                value={editTitle}
+                onChange={(event) => setEditTitle(event.target.value)}
+                maxLength={255}
+                required
+              />
+            </label>
+
+            <label className="text-sm">
+              Category
+
+              <select
+                className="input mt-2 w-full transition focus:border-tv-mint focus:ring-2 focus:ring-tv-mint/15"
+                value={editCategory}
+                onChange={(event) =>
+                  setEditCategory(event.target.value as DocumentCategory)
+                }
+              >
+                {CATEGORIES.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <div className="md:col-span-2 flex gap-3">
+              <button
+                type="submit"
+                className="btn-primary px-5 py-2 shadow-lg shadow-tv-mint/10"
+                disabled={savingEdit}
+              >
+                {savingEdit ? 'Saving...' : 'Save changes'}
+              </button>
+
+              <button
+                type="button"
+                className="btn-secondary px-5 py-2"
+                disabled={savingEdit}
+                onClick={() => setEditingDocument(null)}
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        </section>
+        )}
 
         {canUpload && (
-          <section className="card mb-8">
-            <h2 className="text-lg font-semibold mb-4">
+          <section className="tv-dashboard-panel mb-8 rounded-2xl p-5 sm:p-6">
+            <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold tracking-tight">
               Upload a document
             </h2>
 
@@ -281,7 +346,7 @@ export default function DocumentsPage() {
                 Document title
 
                 <input
-                  className="input mt-2 w-full"
+                  className="input mt-2 w-full transition focus:border-tv-mint focus:ring-2 focus:ring-tv-mint/15"
                   value={title}
                   onChange={(event) => setTitle(event.target.value)}
                   maxLength={255}
@@ -293,7 +358,7 @@ export default function DocumentsPage() {
                 Category
 
                 <select
-                  className="input mt-2 w-full"
+                  className="input mt-2 w-full transition focus:border-tv-mint focus:ring-2 focus:ring-tv-mint/15"
                   value={category}
                   onChange={(event) =>
                     setCategory(event.target.value as DocumentCategory)
@@ -312,7 +377,7 @@ export default function DocumentsPage() {
 
                 <input
                   id="document-file"
-                  className="input mt-2 w-full"
+                  className="input mt-2 w-full transition focus:border-tv-mint focus:ring-2 focus:ring-tv-mint/15"
                   type="file"
                   accept=".pdf,.docx,.xlsx,.txt"
                   required
@@ -324,7 +389,7 @@ export default function DocumentsPage() {
 
               <div className="md:col-span-2">
                 <button
-                  className="btn-primary px-5 py-2"
+                  className="btn-primary px-5 py-2 shadow-lg shadow-tv-mint/10"
                   type="submit"
                   disabled={uploading}
                 >
@@ -335,10 +400,10 @@ export default function DocumentsPage() {
           </section>
         )}
 
-        <section className="card">
+        <section className="tv-dashboard-panel rounded-2xl p-5 sm:p-6">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-5">
             <input
-              className="input md:col-span-2"
+              className="input md:col-span-2 transition focus:border-tv-mint focus:ring-2 focus:ring-tv-mint/15"
               placeholder="Search by title, filename or ownerâ€¦"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
@@ -346,7 +411,7 @@ export default function DocumentsPage() {
             />
 
             <select
-              className="input"
+              className="input transition focus:border-tv-mint focus:ring-2 focus:ring-tv-mint/15"
               value={categoryFilter}
               onChange={(event) => setCategoryFilter(event.target.value)}
               aria-label="Filter by category"
@@ -367,7 +432,7 @@ export default function DocumentsPage() {
             </p>
           ) : filteredDocuments.length === 0 ? (
             <div className="py-10 text-center">
-              <h3 className="font-semibold">
+              <h3 className="font-semibold tracking-tight">
                 No documents found
               </h3>
 
@@ -377,9 +442,9 @@ export default function DocumentsPage() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
+              <table className="w-full min-w-[760px] text-left text-sm">
                 <thead>
-                  <tr className="border-b border-tv-border text-tv-muted">
+                  <tr className="border-b border-tv-border bg-tv-charcoal/50 text-tv-muted">
                     <th className="py-3 pr-4 font-medium">Document</th>
                     <th className="py-3 pr-4 font-medium">Category</th>
                     <th className="py-3 pr-4 font-medium">Owner</th>
@@ -393,38 +458,51 @@ export default function DocumentsPage() {
                   {filteredDocuments.map((item) => (
                     <tr
                       key={item.id}
-                      className="border-b border-tv-border last:border-0"
+                      className="border-b border-tv-border/70 transition-colors last:border-0 hover:bg-tv-mint/[0.035]"
                     >
-                      <td className="py-4 pr-4">
-                        <div className="font-medium">{item.title}</div>
+                      <td className="py-4 pr-4 align-middle">
+                        <div className="font-medium text-tv-text">{item.title}</div>
 
                         <div className="text-xs text-tv-muted mt-1">
                           {item.original_filename}
                         </div>
                       </td>
 
-                      <td className="py-4 pr-4">{item.category}</td>
+                      <td className="py-4 pr-4 align-middle">{item.category}</td>
 
-                      <td className="py-4 pr-4">{item.owner_username}</td>
+                      <td className="py-4 pr-4 align-middle">{item.owner_username}</td>
 
-                      <td className="py-4 pr-4">
+                      <td className="py-4 pr-4 align-middle">
                         {formatFileSize(item.file_size)}
                       </td>
 
-                      <td className="py-4 pr-4">
+                      <td className="py-4 pr-4 align-middle">
                         {formatDate(item.created_at)}
                       </td>
 
-                      <td className="py-4">
+                      <td className="py-4 align-middle">
                         <div className="flex flex-wrap gap-2">
                           <button
                             type="button"
-                            className="btn-secondary px-3 py-1 text-xs"
+                            className="btn-secondary px-3 py-1.5 text-xs"
                             disabled={activeAction === item.id}
                             onClick={() => void handleDownload(item)}
                           >
                             Download
                           </button>
+                          {(
+                            item.current_user_access === 'OWNER' ||
+                            item.current_user_access === 'EDIT'
+                          ) && (
+                            <button
+                              type="button"
+                              className="btn-secondary px-3 py-1.5 text-xs"
+                              disabled={activeAction === item.id || savingEdit}
+                              onClick={() => startEditing(item)}
+                            >
+                              Edit
+                            </button>
+                          )}
 
 
                           {item.owner_username === user?.username && (
@@ -477,7 +555,8 @@ export default function DocumentsPage() {
             </div>
           )}
         </section>
-      </main>
+
+      </div>
     </div>
   );
 }

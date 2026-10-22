@@ -1,157 +1,396 @@
-/**
- * TrustVault Dashboard Page.
- *
- * Minimal authenticated landing page. Shows the current user and their role.
- * No fake data, no fake action buttons.
- *
- * Document management, shared documents, and audit logs will be added in
- * later tasks. This page is intentionally minimal.
- */
-
+import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import TrustVaultLogo from '../components/TrustVaultLogo';
+
+import { documentsApi } from '../api/client';
+import type { DocumentItem } from '../api/client';
 import { useAuth } from '../contexts/AuthContext';
-import type { UserRole } from '../types/auth';
 
-// ── Role badge helpers ─────────────────────────────────────────────────────────
+const formatFileSize = (bytes: number): string => {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
 
-const ROLE_BADGE_CLASS: Record<UserRole, string> = {
-  ADMIN: 'badge badge-warning',
-  OWNER: 'badge badge-success',
-  VIEWER: 'badge badge-neutral',
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 };
 
-const ROLE_DESCRIPTION: Record<UserRole, string> = {
-  ADMIN: 'Full platform access — user management and audit logs.',
-  OWNER: 'Can upload documents and manage access grants.',
-  VIEWER: 'Read-only access to documents shared with you.',
-};
-
-// ── Component ─────────────────────────────────────────────────────────────────
+const formatDate = (value: string): string =>
+  new Date(value).toLocaleDateString('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
 
 export default function DashboardPage() {
-  const { user, logout, loading } = useAuth();
+  const { user } = useAuth();
   const navigate = useNavigate();
 
-  async function handleLogout() {
-    await logout();
-    navigate('/login', { replace: true });
-  }
+  const [documents, setDocuments] = useState<DocumentItem[]>([]);
+  const [loadingDocuments, setLoadingDocuments] = useState(true);
+  const [error, setError] = useState('');
 
-  if (!user) return null; // ProtectedRoute guarantees user is set
+  const loadDocuments = useCallback(async () => {
+    setLoadingDocuments(true);
+    setError('');
 
-  const badgeClass = ROLE_BADGE_CLASS[user.role] ?? 'badge badge-neutral';
-  const roleDesc = ROLE_DESCRIPTION[user.role] ?? '';
+    try {
+      const result = await documentsApi.list();
+      setDocuments(result);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Could not load your documents.',
+      );
+    } finally {
+      setLoadingDocuments(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadDocuments();
+  }, [loadDocuments]);
+
+
+
+  if (!user) return null;
+
+  const ownedDocuments = documents.filter(
+    (item) => item.owner_username === user.username,
+  );
+
+  const sharedDocuments = documents.filter(
+    (item) => item.owner_username !== user.username,
+  );
+
+  const recentDocuments = [...documents]
+    .sort(
+      (a, b) =>
+        new Date(b.updated_at || b.created_at).getTime() -
+        new Date(a.updated_at || a.created_at).getTime(),
+    )
+    .slice(0, 5);
 
   return (
-    <div className="min-h-screen bg-tv-carbon text-tv-text font-sans">
+    <div className="min-w-0">
+      <main className="mx-auto max-w-7xl px-5 py-8 md:px-8 md:py-10">
+      {/* Welcome section */}
+      <section className="mb-8">
+        <p className="mb-2 text-xs font-medium uppercase tracking-widest text-tv-mint">
+          YOUR WORKSPACE
+        </p>
 
-      {/* ── Top navigation ──────────────────────────────────────────────── */}
-      <header className="border-b border-tv-border bg-tv-charcoal">
-        <div className="max-w-5xl mx-auto px-6 h-14 flex items-center gap-3">
-          <TrustVaultLogo size={26} color="mint" aria-label="TrustVault" />
-          <span className="text-sm font-semibold text-tv-text tracking-tight">
-            TrustVault
-          </span>
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <h2 className="text-3xl font-semibold tracking-tight">
+              Welcome back
+              {user.first_name ? `, ${user.first_name}` : ''}
+            </h2>
 
-          <div className="ml-auto flex items-center gap-4">
-            <span className="text-xs text-tv-muted hidden sm:block">
-              {user.email || user.username}
-            </span>
-            <span className={badgeClass}>{user.role_display}</span>
-            <button
-              type="button"
-              onClick={handleLogout}
-              disabled={loading}
-              className="btn-secondary text-xs py-1 px-3"
-            >
-              Sign out
-            </button>
-          </div>
-        </div>
-      </header>
-
-      {/* ── Main content ─────────────────────────────────────────────────── */}
-      <main className="max-w-5xl mx-auto px-6 py-10">
-
-        {/* Welcome */}
-        <section className="mb-8" aria-labelledby="welcome-heading">
-          <h1 id="welcome-heading" className="text-2xl font-semibold text-tv-text mb-1">
-            Welcome{user.first_name ? `, ${user.first_name}` : ''}
-          </h1>
-          <p className="text-tv-muted text-sm">{roleDesc}</p>
-        </section>
-
-        {/* User info card */}
-        <section className="mb-8" aria-labelledby="user-info-heading">
-          <p className="section-title mb-3" id="user-info-heading">Your account</p>
-          <div className="card max-w-md">
-            <dl className="space-y-3">
-              <div className="flex justify-between items-center">
-                <dt className="text-sm text-tv-muted">Username</dt>
-                <dd className="text-sm text-tv-text font-mono">{user.username}</dd>
-              </div>
-              <div className="divider" />
-              <div className="flex justify-between items-center">
-                <dt className="text-sm text-tv-muted">Email</dt>
-                <dd className="text-sm text-tv-text">{user.email || '—'}</dd>
-              </div>
-              <div className="divider" />
-              <div className="flex justify-between items-center">
-                <dt className="text-sm text-tv-muted">Role</dt>
-                <dd><span className={badgeClass}>{user.role_display}</span></dd>
-              </div>
-              <div className="divider" />
-              <div className="flex justify-between items-center">
-                <dt className="text-sm text-tv-muted">Member since</dt>
-                <dd className="text-sm text-tv-text">
-                  {new Date(user.date_joined).toLocaleDateString('en-GB', {
-                    year: 'numeric',
-                    month: 'long',
-                    day: 'numeric',
-                  })}
-                </dd>
-              </div>
-            </dl>
-          </div>
-        </section>
-
-        {/* Future sections placeholder */}
-        <section aria-labelledby="status-heading">
-          <p className="section-title mb-3" id="status-heading">Platform features</p>
-          <div className="card max-w-2xl">
-            <p className="text-sm text-tv-muted mb-4">
-              The following features will be available in upcoming releases.
+            <p className="mt-2 max-w-xl text-sm leading-6 text-tv-muted">
+              Your documents, your permissions, and your
+              workspace—all in one place.
             </p>
-            {([
-              ['My Documents', 'Coming in Task 3'],
-              ['Shared With Me', 'Coming in Task 3'],
-              ['Access Management', 'Coming in Task 4'],
-              ['Audit Logs', 'Coming in Task 5'],
-              ...(user.role === 'ADMIN' ? [['Admin Dashboard', 'Coming in Task 6'] as [string, string]] : []),
-            ] as [string, string][]).map(([feature, status]) => (
-              <div
-                key={feature}
-                className="flex justify-between items-center py-2 border-b border-tv-border last:border-0"
-              >
-                <span className="text-sm text-tv-text">{feature}</span>
-                <span className="badge badge-neutral">{status}</span>
-              </div>
-            ))}
           </div>
-        </section>
 
-      </main>
-
-      {/* ── Footer ──────────────────────────────────────────────────────── */}
-      <footer className="border-t border-tv-border mt-16">
-        <div className="max-w-5xl mx-auto px-6 h-12 flex items-center">
-          <p className="text-xs text-tv-muted">
-            TrustVault · Authentication Task 2
-          </p>
+          <button
+            type="button"
+            onClick={() => navigate('/documents')}
+            className="btn-primary px-5 py-3 text-sm"
+          >
+            + Open documents
+          </button>
         </div>
-      </footer>
+      </section>
 
+      {error && (
+        <div
+          role="alert"
+          className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-tv-danger p-4 text-sm"
+        >
+          <span>{error}</span>
+
+          <button
+            type="button"
+            className="btn-secondary px-3 py-2 text-xs"
+            onClick={() => void loadDocuments()}
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
+      {/* Summary cards */}
+      <section
+        aria-label="Document statistics"
+        className="mb-10 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3"
+      >
+        <article className="tv-dashboard-card p-5">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-sm text-tv-muted">
+                Accessible documents
+              </p>
+
+              <p className="mt-3 text-3xl font-semibold">
+                {loadingDocuments ? '—' : documents.length}
+              </p>
+
+              <p className="mt-2 text-xs text-tv-muted">
+                Documents available to your account
+              </p>
+            </div>
+
+            <span className="tv-dashboard-stat-icon text-xl">
+              ▤
+            </span>
+          </div>
+        </article>
+
+        <article className="tv-dashboard-card p-5">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-sm text-tv-muted">
+                Documents you own
+              </p>
+
+              <p className="mt-3 text-3xl font-semibold">
+                {loadingDocuments ? '—' : ownedDocuments.length}
+              </p>
+
+              <p className="mt-2 text-xs text-tv-muted">
+                Documents owned by your account
+              </p>
+            </div>
+
+            <span className="tv-dashboard-stat-icon text-xl">
+              ◈
+            </span>
+          </div>
+        </article>
+
+        <article className="tv-dashboard-card p-5">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-sm text-tv-muted">
+                Shared with you
+              </p>
+
+              <p className="mt-3 text-3xl font-semibold">
+                {loadingDocuments ? '—' : sharedDocuments.length}
+              </p>
+
+              <p className="mt-2 text-xs text-tv-muted">
+                Documents owned by other users
+              </p>
+            </div>
+
+            <span className="tv-dashboard-stat-icon text-xl">
+              ⇄
+            </span>
+          </div>
+        </article>
+      </section>
+
+      {/* Recent documents */}
+      <section className="tv-dashboard-panel mb-8 p-5">
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="text-lg font-semibold">
+              Recent documents
+            </h3>
+            <p className="mt-1 text-sm text-tv-muted">
+              Recently updated or created documents you can access.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => navigate('/documents')}
+            className="btn-secondary px-4 py-2 text-xs"
+          >
+            View all
+          </button>
+        </div>
+
+        {loadingDocuments ? (
+          <div
+            className="flex min-h-36 flex-col items-center justify-center gap-3"
+            role="status"
+          >
+            <div
+              className="newtons-cradle"
+              aria-hidden="true"
+            >
+              <div className="newtons-cradle__dot" />
+              <div className="newtons-cradle__dot" />
+              <div className="newtons-cradle__dot" />
+              <div className="newtons-cradle__dot" />
+            </div>
+
+            <p className="text-sm text-tv-muted">
+              Loading your documents...
+            </p>
+          </div>
+        ) : recentDocuments.length === 0 ? (
+          <div className="py-12 text-center">
+            <div className="mb-3 text-3xl text-tv-mint">
+              ▤
+            </div>
+
+            <p className="font-medium">
+              No documents yet
+            </p>
+
+            <p className="mt-2 text-sm text-tv-muted">
+              Upload a document or wait for someone to share one
+              with you.
+            </p>
+
+            {(user.role === 'OWNER' || user.role === 'ADMIN') && (
+              <button
+                type="button"
+                onClick={() => navigate('/documents')}
+                className="btn-primary mt-5 px-5 py-2"
+              >
+                Go to documents
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[650px] text-left text-sm">
+              <thead>
+                <tr className="border-b border-tv-border text-tv-muted">
+                  <th className="py-3 pr-4 font-medium">
+                    Document
+                  </th>
+                  <th className="py-3 pr-4 font-medium">
+                    Category
+                  </th>
+                  <th className="py-3 pr-4 font-medium">
+                    Owner
+                  </th>
+                  <th className="py-3 pr-4 font-medium">
+                    Size
+                  </th>
+                  <th className="py-3 pr-4 font-medium">
+                    Updated
+                  </th>
+                  <th className="py-3 font-medium">
+                    Action
+                  </th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {recentDocuments.map((item) => (
+                  <tr
+                    key={item.id}
+                    className="border-b border-tv-border last:border-0 transition-colors hover:bg-tv-panel/60"
+                  >
+                    <td className="py-4 pr-4">
+                      <p className="font-medium">
+                        {item.title}
+                      </p>
+
+                      <p className="mt-1 text-xs text-tv-muted">
+                        {item.original_filename}
+                      </p>
+                    </td>
+
+                    <td className="py-4 pr-4">
+                      <span className="badge badge-neutral">
+                        {item.category}
+                      </span>
+                    </td>
+
+                    <td className="py-4 pr-4">
+                      {item.owner_username}
+                    </td>
+
+                    <td className="py-4 pr-4 text-tv-muted">
+                      {formatFileSize(item.file_size)}
+                    </td>
+
+                    <td className="py-4 pr-4 text-tv-muted">
+                      {formatDate(
+                        item.updated_at || item.created_at,
+                      )}
+                    </td>
+
+                    <td className="py-4">
+                      <button
+                        type="button"
+                        onClick={() => navigate('/documents')}
+                        className="btn-secondary whitespace-nowrap px-3 py-2 text-xs"
+                      >
+                        Open
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      {/* Quick actions */}
+      <section aria-labelledby="quick-actions-heading">
+        <h3
+          id="quick-actions-heading"
+          className="mb-4 text-lg font-semibold"
+        >
+          Quick actions
+        </h3>
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <button
+            type="button"
+            onClick={() => navigate('/documents')}
+            className="tv-dashboard-action group p-5 text-left"
+          >
+            <span className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl border border-tv-border bg-tv-panel text-xl text-tv-mint transition-transform group-hover:scale-105">
+              ↑
+            </span>
+
+            <span className="block font-semibold">
+              Documents
+            </span>
+
+            <span className="mt-2 block text-sm text-tv-muted">
+              Browse, upload, download, and manage your accessible
+              documents.
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => navigate('/access-management')}
+            className="tv-dashboard-action group rounded-xl border border-tv-border bg-tv-charcoal p-5 text-left transition-all duration-200 hover:-translate-y-1 hover:border-tv-mint"
+          >
+            <span className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl border border-tv-border bg-tv-panel text-xl text-tv-mint transition-transform group-hover:scale-105">
+              ♧
+            </span>
+
+            <span className="block font-semibold">
+              Access management
+            </span>
+
+            <span className="mt-2 block text-sm text-tv-muted">
+              Grant, review, and revoke document permissions where
+              authorized.
+            </span>
+          </button>
+        </div>
+      </section>
+
+      <footer className="mt-12 border-t border-tv-border pt-5">
+        <p className="text-xs leading-5 text-tv-muted">
+          TrustVault · Secure document access · Access is enforced
+          by the backend.
+        </p>
+      </footer>
+      </main>
     </div>
   );
 }

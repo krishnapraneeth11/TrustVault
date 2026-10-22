@@ -40,6 +40,10 @@ class User(AbstractUser):
             "ADMIN: full access. OWNER: can upload and share. VIEWER: read-only."
         ),
     )
+    must_change_password = models.BooleanField(
+        default=False,
+        help_text="Require the user to change their temporary password.",
+    )
 
     # Use email as the unique identifier for display; username is still used
     # by Django's authentication backend (kept for simplicity).

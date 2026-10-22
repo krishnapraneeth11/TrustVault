@@ -29,10 +29,13 @@ export default function LoginPage() {
   // If already authenticated, redirect to dashboard.
   useEffect(() => {
     if (!loading && user) {
-      navigate('/', { replace: true });
+      if (user.must_change_password) {
+        navigate('/change-password', { replace: true });
+      } else {
+        navigate('/', { replace: true });
+      }
     }
   }, [user, loading, navigate]);
-
   // Focus the username field on mount.
   useEffect(() => {
     usernameRef.current?.focus();

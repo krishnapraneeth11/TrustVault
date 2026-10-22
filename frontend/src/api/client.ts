@@ -1,45 +1,50 @@
+
 /**
  * TrustVault API client.
  *
- * Security rules enforced here:
- * - credentials: 'include' sends the session cookie on every request.
- * - CSRF token is fetched from the backend and sent as X-CSRFToken header
- *   on all state-changing requests (POST, PUT, PATCH, DELETE).
- * - No passwords, session IDs, or tokens are stored in localStorage.
- * - The CSRF token is kept only in module-level memory; it is lost on page
- *   reload, which is acceptable — the token is re-fetched on the next login attempt.
- * - The API base URL is read from VITE_API_BASE_URL at build time, so it can
- *   be configured per environment without modifying source code.
+ * Security:
+ * - Session cookies are sent using credentials: 'include'.
+ * - CSRF tokens are fetched from Django and sent with state-changing requests.
+ * - No passwords, session IDs, or CSRF tokens are stored in localStorage.
+ * - The API base URL can be configured using VITE_API_BASE_URL.
  */
 
 import type { LoginCredentials, User } from '../types/auth';
 
-const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? 'http://localhost:8000/api';
+const API_BASE =
+  (import.meta.env.VITE_API_BASE_URL as string | undefined) ??
+  'http://localhost:8000/api';
 
-/** In-memory CSRF token. Not persisted to localStorage or cookies. */
+/** Keep the CSRF token in memory only. */
 let csrfToken: string | null = null;
 
-/** Fetch and cache the CSRF token from the backend. */
 async function fetchCsrfToken(): Promise<string> {
   const response = await fetch(`${API_BASE}/auth/csrf/`, {
     method: 'GET',
     credentials: 'include',
+    headers: {
+      Accept: 'application/json',
+    },
   });
+
   if (!response.ok) {
-    throw new Error('Failed to fetch CSRF token.');
+    throw new Error('Unable to establish a secure session. Please refresh and try again.');
   }
-  const data = await response.json() as { csrfToken: string };
+
+  const data = (await response.json()) as { csrfToken: string };
+
   csrfToken = data.csrfToken;
   return csrfToken;
 }
 
-/** Ensure we have a CSRF token; fetch if missing. */
 async function ensureCsrf(): Promise<string> {
-  if (csrfToken) return csrfToken;
+  if (csrfToken) {
+    return csrfToken;
+  }
+
   return fetchCsrfToken();
 }
 
-/** Clear the cached CSRF token (call on logout). */
 export function clearCsrfToken(): void {
   csrfToken = null;
 }
@@ -51,52 +56,7 @@ interface RequestOptions {
   body?: unknown;
 }
 
-/** Generic fetch wrapper that handles credentials and CSRF. */
-async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { method = 'GET', body } = options;
-  const isWriteMethod = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method);
-
-  const headers: Record<string, string> = {
-    'Accept': 'application/json',
-  };
-
-  if (!(body instanceof FormData) && body !== undefined) {
-    headers['Content-Type'] = 'application/json';
-  }
-
-  if (isWriteMethod) {
-    const token = await ensureCsrf();
-    headers['X-CSRFToken'] = token;
-  }
-
-  const response = await fetch(`${API_BASE}${path}`, {
-    method,
-    credentials: 'include',  // send session cookie
-    headers,
-    body:
-      body instanceof FormData
-        ? body
-        : body !== undefined
-          ? JSON.stringify(body)
-          : undefined,
-  });
-
-  // Handle 204 No Content
-  if (response.status === 204) {
-    return undefined as unknown as T;
-  }
-
-  const data = await response.json() as T | { detail: string };
-
-  if (!response.ok) {
-    const detail = (data as { detail?: string }).detail ?? `HTTP ${response.status}`;
-    throw new ApiError(detail, response.status);
-  }
-
-  return data as T;
-}
-
-/** Typed API error with HTTP status code. */
+/** Typed API error containing the HTTP status code. */
 export class ApiError extends Error {
   readonly status: number;
 
@@ -107,28 +67,291 @@ export class ApiError extends Error {
   }
 }
 
-// ── Auth endpoints ─────────────────────────────────────────────────────────────
+/**
+ * Convert Django REST Framework validation responses into readable messages.
+ *
+ * Handles responses such as:
+ * { "detail": "..." }
+ * { "non_field_errors": ["..."] }
+ * { "new_password": ["..."] }
+ * { "email": ["..."] }
+ * { "username": ["..."] }
+ */
+function getErrorMessage(data: unknown, status: number): string {
+  if (typeof data === 'string' && data.trim()) {
+    return data;
+  }
+
+  if (data && typeof data === 'object' && !Array.isArray(data)) {
+    const errorData = data as Record<string, unknown>;
+
+    // Prefer Django's general explanation when provided.
+    if (typeof errorData.detail === 'string' && errorData.detail.trim()) {
+      return errorData.detail;
+    }
+
+    // Collect field-level and general validation errors.
+    const messages: string[] = [];
+
+    for (const [field, value] of Object.entries(errorData)) {
+      if (field === 'csrfToken') {
+        continue;
+      }
+
+      const errors = Array.isArray(value) ? value : [value];
+
+      for (const error of errors) {
+        if (typeof error !== 'string' || !error.trim()) {
+          continue;
+        }
+
+        let message = error.trim();
+
+        // Make password-related errors more useful.
+        if (/password is too common/i.test(message)) {
+          message =
+            'Your new password is too common. Please choose a stronger password that is harder to guess.';
+        } else if (/password is too short/i.test(message)) {
+          message =
+            'Your password is too short. Please choose a longer password.';
+        } else if (/password is entirely numeric/i.test(message)) {
+          message =
+            'Your password cannot contain only numbers. Include letters and other characters.';
+        } else if (/password is too similar/i.test(message)) {
+          message =
+            'Your password is too similar to your personal information. Choose something less predictable.';
+        } else if (/current password is incorrect/i.test(message)) {
+          message =
+            'Your current password is incorrect. Please check it and try again.';
+        } else if (/passwords? do(?:es)? not match|passwords? must match/i.test(message)) {
+          message =
+            'Your new password and confirmation do not match.';
+        }
+
+        if (field === 'non_field_errors' || field === 'detail') {
+          messages.push(message);
+        } else {
+          const readableField = field
+            .replace(/_/g, ' ')
+            .replace(/\b\w/g, (character) => character.toUpperCase());
+
+          messages.push(`${readableField}: ${message}`);
+        }
+      }
+    }
+
+    if (messages.length > 0) {
+      return [...new Set(messages)].join(' ');
+    }
+  }
+
+  // Fallback for responses that don't contain readable validation details.
+  switch (status) {
+    case 400:
+      return 'Some information is invalid. Please review your entries and try again.';
+    case 401:
+      return 'Authentication failed or your session has expired. Please sign in again.';
+    case 403:
+      return 'You do not have permission to perform this action.';
+    case 404:
+      return 'The requested resource could not be found.';
+    case 409:
+      return 'This action conflicts with the current state. Please refresh and try again.';
+    case 413:
+      return 'The uploaded file is too large.';
+    case 429:
+      return 'Too many requests. Please wait a moment and try again.';
+    default:
+      if (status >= 500) {
+        return 'The server encountered a problem. Please try again later.';
+      }
+
+      return `Request failed with HTTP ${status}.`;
+  }
+}
+
+/** Common request handler for JSON and multipart API requests. */
+async function request<T>(
+  path: string,
+  options: RequestOptions = {},
+): Promise<T> {
+  const { method = 'GET', body } = options;
+
+  const isWriteMethod = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method);
+
+  async function sendRequest(token?: string): Promise<Response> {
+    const headers: Record<string, string> = {
+      Accept: 'application/json',
+    };
+
+    if (!(body instanceof FormData) && body !== undefined) {
+      headers['Content-Type'] = 'application/json';
+    }
+
+    if (isWriteMethod && token) {
+      headers['X-CSRFToken'] = token;
+    }
+
+    return fetch(`${API_BASE}${path}`, {
+      method,
+      credentials: 'include',
+      headers,
+      body:
+        body instanceof FormData
+          ? body
+          : body !== undefined
+            ? JSON.stringify(body)
+            : undefined,
+    });
+  }
+
+  let token: string | undefined;
+
+  if (isWriteMethod) {
+    token = await ensureCsrf();
+  }
+
+  let response = await sendRequest(token);
+
+  // Retry once only when Django explicitly identifies a CSRF failure.
+  if (isWriteMethod && response.status === 403) {
+    const errorText = await response.clone().text();
+
+    const isCsrfFailure = /CSRF Failed|CSRF token/i.test(errorText);
+
+    if (isCsrfFailure) {
+      token = await fetchCsrfToken();
+      response = await sendRequest(token);
+    }
+  }
+
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
+  const responseText = await response.text();
+
+  let data: unknown = null;
+
+  if (responseText) {
+    try {
+      data = JSON.parse(responseText);
+    } catch {
+      data = { detail: responseText };
+    }
+  }
+
+  if (!response.ok) {
+    throw new ApiError(
+      getErrorMessage(data, response.status),
+      response.status,
+    );
+  }
+
+  return data as T;
+}
+
+// ============================================================
+// Authentication, profile and employee management endpoints
+// ============================================================
+
+export interface ProfileUpdateInput {
+  email: string;
+  first_name: string;
+  last_name: string;
+}
+
+export interface ChangePasswordInput {
+  current_password: string;
+  new_password: string;
+}
+
+export interface CreateEmployeeInput {
+  username: string;
+  email: string;
+  first_name: string;
+  last_name: string;
+  role: 'OWNER' | 'VIEWER';
+  temporary_password: string;
+}
+
+export interface EmployeeStatusInput {
+  is_active: boolean;
+}
 
 export const authApi = {
-  /** Fetch and set the CSRF cookie. Call before any POST request. */
+  /** Fetch a CSRF token before submitting a state-changing request. */
   csrf: () => fetchCsrfToken(),
 
-  /**
-   * Log in with username + password.
-   * Returns the authenticated user on success.
-   * Throws ApiError on failure (generic message — does not reveal username existence).
-   */
-  login: (credentials: LoginCredentials) =>
-    request<User>('/auth/login/', { method: 'POST', body: credentials }),
+  /** Authenticate using username and password. */
+  login: async (credentials: LoginCredentials) => {
+    await fetchCsrfToken();
 
-  /** Destroy the current session. */
+    return request<User>('/auth/login/', {
+      method: 'POST',
+      body: credentials,
+    });
+  },
+
+  /** End the current server-side session. */
   logout: () =>
-    request<{ detail: string }>('/auth/logout/', { method: 'POST' }),
+    request<{ detail: string }>('/auth/logout/', {
+      method: 'POST',
+    }),
 
-  /** Return the current authenticated user, or throw 403 if not logged in. */
+  /** Fetch the authenticated user's information. */
   me: () => request<User>('/auth/me/'),
+
+  /** Fetch the user's editable profile. */
+  profile: () => request<User>('/auth/profile/'),
+
+  /** Update profile fields. */
+  updateProfile: (data: ProfileUpdateInput) =>
+    request<User>('/auth/profile/', {
+      method: 'PATCH',
+      body: data,
+    }),
+
+  /** Change the authenticated user's password. */
+  changePassword: async (data: ChangePasswordInput) => {
+    await fetchCsrfToken();
+
+    return request<{ detail: string }>('/auth/change-password/', {
+      method: 'POST',
+      body: data,
+    });
+  },
+
+  /** List users. Django must restrict this endpoint to authorized admins. */
+  listUsers: () => request<User[]>('/auth/users/'),
+
+  /** Create an employee account. */
+  createUser: (data: CreateEmployeeInput) =>
+    request<User>('/auth/users/', {
+      method: 'POST',
+      body: data,
+    }),
+
+  /** Activate or deactivate an employee account. */
+  updateUserStatus: (userId: number, data: EmployeeStatusInput) =>
+    request<User>(`/auth/users/${userId}/status/`, {
+      method: 'PATCH',
+      body: data,
+    }),
+
+  /** Permanently delete an employee account. */
+  deleteUser: (userId: number) =>
+    request<{
+      detail: string;
+      deleted_user_id: number;
+    }>(`/auth/users/${userId}/delete/`, {
+      method: 'DELETE',
+    }),
 };
-// ── Document endpoints ────────────────────────────────────────────────
+
+// ============================================================
+// Document endpoints
+// ============================================================
 
 export type DocumentCategory =
   | 'HR'
@@ -147,6 +370,7 @@ export interface DocumentItem {
   file_size: number;
   created_at: string;
   updated_at: string;
+  current_user_access: 'OWNER' | 'EDIT' | 'READ' | null;
 }
 
 export interface DocumentUploadResult {
@@ -158,6 +382,7 @@ export interface DocumentUploadResult {
   file_size: number;
   created_at: string;
 }
+
 export type AccessLevel = 'READ' | 'EDIT';
 
 export interface DocumentPermission {
@@ -174,9 +399,11 @@ export interface PermissionGrantInput {
 }
 
 export const documentsApi = {
+  /** List documents accessible to the current user. */
   list: () => request<DocumentItem[]>('/documents/'),
 
-  upload: async (
+  /** Upload a document. */
+  upload: (
     file: File,
     title: string,
     category: DocumentCategory,
@@ -193,9 +420,11 @@ export const documentsApi = {
     });
   },
 
+  /** Retrieve document metadata. */
   get: (id: string) =>
     request<DocumentItem>(`/documents/${id}/`),
 
+  /** Update editable document metadata. */
   update: (
     id: string,
     data: Partial<Pick<DocumentItem, 'title' | 'category'>>,
@@ -205,11 +434,13 @@ export const documentsApi = {
       body: data,
     }),
 
+  /** Delete a document. */
   delete: (id: string) =>
     request<void>(`/documents/${id}/`, {
       method: 'DELETE',
     }),
 
+  /** Download a document using the authenticated session. */
   download: async (id: string, filename: string): Promise<void> => {
     const response = await fetch(
       `${API_BASE}/documents/${id}/download/`,
@@ -217,7 +448,7 @@ export const documentsApi = {
         method: 'GET',
         credentials: 'include',
         headers: {
-          'Accept': 'application/octet-stream',
+          Accept: 'application/octet-stream',
         },
       },
     );
@@ -226,10 +457,14 @@ export const documentsApi = {
       let message = `Download failed: HTTP ${response.status}`;
 
       try {
-        const data = await response.json() as { detail?: string };
-        message = data.detail ?? message;
+        const data = (await response.json()) as {
+          detail?: string;
+          [key: string]: unknown;
+        };
+
+        message = getErrorMessage(data, response.status);
       } catch {
-        // Keep the HTTP status message if the response isn't JSON.
+        // Keep the HTTP status message.
       }
 
       throw new ApiError(message, response.status);
@@ -242,20 +477,24 @@ export const documentsApi = {
       const link = document.createElement('a');
       link.href = objectUrl;
       link.download = filename;
+
       document.body.appendChild(link);
       link.click();
       link.remove();
     } finally {
-      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+      window.setTimeout(() => {
+        URL.revokeObjectURL(objectUrl);
+      }, 1000);
     }
   },
-    // List permissions for a document.
+
+  /** List permissions associated with a document. */
   listPermissions: (documentId: string) =>
     request<DocumentPermission[]>(
       `/documents/${documentId}/permissions/`,
     ),
 
-  // Grant READ or EDIT access to a user.
+  /** Grant READ or EDIT access. */
   grantPermission: (
     documentId: string,
     data: PermissionGrantInput,
@@ -268,7 +507,7 @@ export const documentsApi = {
       },
     ),
 
-  // Revoke a user's permission.
+  /** Revoke a document permission. */
   revokePermission: (
     documentId: string,
     permissionId: number,
@@ -280,3 +519,4 @@ export const documentsApi = {
       },
     ),
 };
+

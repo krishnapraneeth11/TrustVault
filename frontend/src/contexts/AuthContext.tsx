@@ -1,15 +1,13 @@
 /**
  * TrustVault Authentication Context.
  *
- * Provides the current user, login/logout actions, and loading/error state
- * to the entire React component tree.
+ * Provides the authenticated user, login/logout actions,
+ * profile state updates, and authentication status.
  *
- * Security rules:
- * - No passwords, tokens, or session IDs are stored in state or localStorage.
- * - The current user is loaded from the backend on mount; if the session
- *   has expired, the backend returns 403 and user is set to null.
- * - On logout, the session is destroyed server-side AND the in-memory user
- *   state is cleared.
+ * Security:
+ * - No passwords, session IDs or tokens are stored in localStorage.
+ * - Django remains responsible for authentication and authorization.
+ * - The session cookie is managed by the browser and backend.
  */
 
 import React, {
@@ -19,101 +17,185 @@ import React, {
   useEffect,
   useState,
 } from 'react';
-import { authApi, ApiError, clearCsrfToken } from '../api/client';
-import type { User, LoginCredentials } from '../types/auth';
 
-// ── Context shape ──────────────────────────────────────────────────────────────
+import {
+  authApi,
+  ApiError,
+  clearCsrfToken,
+} from '../api/client';
+
+import type {
+  User,
+  LoginCredentials,
+} from '../types/auth';
 
 interface AuthContextValue {
   user: User | null;
   loading: boolean;
   error: string | null;
+
   login: (credentials: LoginCredentials) => Promise<void>;
   logout: () => Promise<void>;
+
   clearError: () => void;
+  updateUser: (updatedUser: User) => void;
+  refreshUser: () => Promise<User | null>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-// ── Provider ───────────────────────────────────────────────────────────────────
-
-export function AuthProvider({ children }: { children: React.ReactNode }) {
+export function AuthProvider({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);  // true on mount
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  /** Load the current session user from the backend on mount. */
+  /**
+   * Fetch the authenticated user from Django.
+   */
+  const refreshUser = useCallback(async (): Promise<User | null> => {
+    try {
+      const currentUser = await authApi.me();
+
+      setUser(currentUser);
+
+      return currentUser;
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 403) {
+        setUser(null);
+        return null;
+      }
+
+      throw err;
+    }
+  }, []);
+
+  /**
+   * Load the current session when the application starts.
+   */
   useEffect(() => {
     let cancelled = false;
+
     async function loadUser() {
       try {
-        const me = await authApi.me();
-        if (!cancelled) setUser(me);
-      } catch (err) {
-        // 403 means not authenticated — that's the normal unauthenticated state.
-        if (err instanceof ApiError && err.status === 403) {
-          if (!cancelled) setUser(null);
-        } else {
-          // Network error or unexpected server error — still show the app.
-          if (!cancelled) setUser(null);
+        const currentUser = await authApi.me();
+
+        if (!cancelled) {
+          setUser(currentUser);
+        }
+      } catch {
+        if (!cancelled) {
+          setUser(null);
         }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
     }
-    loadUser();
-    return () => { cancelled = true; };
+
+    void loadUser();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  const login = useCallback(async (credentials: LoginCredentials) => {
-    setError(null);
-    setLoading(true);
-    try {
-      // Ensure a fresh CSRF token is available before the POST.
-      await authApi.csrf();
-      const loggedInUser = await authApi.login(credentials);
-      setUser(loggedInUser);
-    } catch (err) {
-      if (err instanceof ApiError) {
-        setError(err.message);
-      } else {
-        setError('An unexpected error occurred. Please try again.');
+  /**
+   * Log in through the Django session endpoint.
+   */
+  const login = useCallback(
+    async (credentials: LoginCredentials): Promise<void> => {
+      setError(null);
+      setLoading(true);
+
+      try {
+        await authApi.csrf();
+
+        const authenticatedUser = await authApi.login(credentials);
+
+        setUser(authenticatedUser);
+      } catch (err) {
+        setUser(null);
+
+        if (err instanceof ApiError) {
+          setError(err.message);
+        } else if (err instanceof Error) {
+          setError(err.message);
+        } else {
+          setError('An unexpected error occurred. Please try again.');
+        }
+
+        throw err;
+      } finally {
+        setLoading(false);
       }
-      setUser(null);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+    },
+    [],
+  );
 
-  const logout = useCallback(async () => {
+  /**
+   * Log out and clear local authentication state.
+   */
+  const logout = useCallback(async (): Promise<void> => {
     setLoading(true);
+
     try {
       await authApi.logout();
     } catch {
-      // Even if the server request fails, clear the local state.
+      // Clear local state even if the logout request fails.
     } finally {
       setUser(null);
       clearCsrfToken();
+      setError(null);
       setLoading(false);
     }
   }, []);
 
-  const clearError = useCallback(() => setError(null), []);
+  /**
+   * Update the user stored in React context after a successful
+   * profile update or password change.
+   */
+  const updateUser = useCallback((updatedUser: User): void => {
+    setUser(updatedUser);
+  }, []);
+
+  const clearError = useCallback((): void => {
+    setError(null);
+  }, []);
 
   return (
-    <AuthContext.Provider value={{ user, loading, error, login, logout, clearError }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        loading,
+        error,
+        login,
+        logout,
+        clearError,
+        updateUser,
+        refreshUser,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
 }
 
-// ── Hook ───────────────────────────────────────────────────────────────────────
-
-/** Returns the auth context. Must be used inside <AuthProvider>. */
+/**
+ * Access authentication state inside components.
+ */
 export function useAuth(): AuthContextValue {
-  const ctx = useContext(AuthContext);
-  if (!ctx) {
-    throw new Error('useAuth must be used within an AuthProvider');
+  const context = useContext(AuthContext);
+
+  if (!context) {
+    throw new Error(
+      'useAuth must be used within an AuthProvider.',
+    );
   }
-  return ctx;
+
+  return context;
 }
