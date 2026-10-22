@@ -1,214 +1,330 @@
 # TrustVault
 
-> **Secure Documents. Verified Access.**
+**Secure Documents. Verified Access.**
 
-TrustVault is a security-focused enterprise document-sharing and audit platform.
-It provides role-based access control, per-document permissions, secure previews,
-and a tamper-evident audit trail — built as an individual software engineering
-hiring challenge.
+TrustVault is a security-focused document management and sharing application built with Django REST Framework and React. It combines role-based access control, document-level permissions, protected document downloads, and a tamper-evident audit trail.
 
----
+The project was developed as an individual software engineering hiring challenge, with an emphasis on server-side authorization, security testing, and transparent threat documentation.
+
+## Features
+
+### Authentication and Roles
+
+* Session-based authentication using Django.
+* CSRF-aware API interactions.
+* Three platform roles: `ADMIN`, `OWNER`, and `VIEWER`.
+* Protected frontend routes and authenticated API endpoints.
+
+### Document Management
+
+* Upload and manage documents.
+* Organize documents by category.
+* Search and list documents available to the current user.
+* Download documents through a protected backend endpoint.
+* Update document metadata when authorized.
+* Delete documents subject to authorization rules.
+
+### Document-Level Permissions
+
+* Grant users `READ` or `EDIT` access to a document.
+* Review existing document permissions.
+* Revoke access.
+* Enforce permissions on the backend rather than relying on frontend controls.
+
+### Audit and Integrity
+
+* Record security-relevant document and permission events.
+* Maintain a hash-linked audit chain.
+* Verify audit-chain integrity using a Django management command.
+
+### API Documentation
+
+* OpenAPI schema generation.
+* Interactive Swagger UI.
+* Documented authentication, document, download, and permission endpoints.
 
 ## Technology Stack
 
-| Layer     | Technology                                          |
-|-----------|-----------------------------------------------------|
-| Backend   | Python 3.11, Django 5.2, Django REST Framework      |
-| Database  | PostgreSQL (production) · SQLite (local dev)        |
-| Auth      | Django sessions + CSRF (JWT planned for API)        |
-| Frontend  | React 18, TypeScript, Vite, Tailwind CSS            |
-| Testing   | pytest, pytest-django (backend) · Vitest (frontend) |
-| Dev OS    | Windows 11 / PowerShell                             |
+| Layer             | Technology                                            |
+| ----------------- | ----------------------------------------------------- |
+| Backend           | Python 3.11, Django 5.2, Django REST Framework 3.16.0 |
+| Database          | SQLite for local development                          |
+| Authentication    | Django sessions and CSRF                              |
+| Frontend          | React 19, TypeScript, Vite, Tailwind CSS              |
+| API documentation | drf-spectacular, OpenAPI, Swagger UI                  |
+| Backend testing   | Django test framework, pytest, pytest-django          |
+| Version control   | Git                                                   |
 
----
+PostgreSQL may be considered for production deployment, but production database support must be configured and verified separately.
 
-## Planned Architecture
+## Architecture
 
-```
+```text
 TrustVault/
-├── brand/                  # Official SVG logo and brand assets
-├── backend/                # Django project
-│   ├── config/             # Django settings, URLs, WSGI/ASGI
+├── brand/
+│   └── trustvault-logo.svg
+├── backend/
+│   ├── config/
 │   ├── apps/
-│   │   ├── accounts/       # User model, roles (Admin / Owner / Viewer)
-│   │   ├── documents/      # Document model, upload, permissions
-│   │   ├── audit/          # Audit log model and event recording
-│   │   └── api/            # DRF router and serializers
+│   │   ├── accounts/
+│   │   ├── documents/
+│   │   ├── audit/
+│   │   └── management/
+│   │       └── commands/
 │   ├── requirements.txt
 │   └── manage.py
-├── frontend/               # Vite + React + TypeScript
+├── frontend/
+│   ├── public/
 │   ├── src/
-│   │   ├── components/     # Reusable UI components
-│   │   ├── pages/          # Route-level page components
-│   │   ├── hooks/          # Custom React hooks
-│   │   ├── api/            # API client (axios / fetch wrappers)
-│   │   └── styles/         # Design tokens and global CSS
-│   ├── public/             # Static assets (favicon, etc.)
-│   └── index.html
-├── docs/                   # Architecture diagrams, API docs
+│   │   ├── components/
+│   │   ├── pages/
+│   │   ├── hooks/
+│   │   └── api/
+│   └── package.json
 ├── .env.example
-├── .gitignore
 ├── PROMPTS.md
 ├── THREATS.md
 └── README.md
 ```
 
----
+The backend is responsible for authentication, authorization, document validation, protected file delivery, and audit events. The React frontend communicates with the backend through HTTP API requests.
 
-## Security Design Goals
+## Prerequisites
 
-- **Authentication**: Session-based authentication with CSRF protection.
-  JWT access tokens planned for the REST API.
-- **Authorisation**: All permission checks enforced server-side in Django.
-  The frontend never makes decisions about what data a user may see.
-- **Roles**: Administrator, Document Owner, Viewer — enforced at the view layer.
-- **Audit trail**: Every access attempt (successful and denied) recorded
-  server-side with timestamp, user, document, and action.
-- **Upload validation**: File type, size, and content validated server-side.
-  MIME-type sniffing, not filename extension alone.
-- **Secure delivery**: Documents served through authenticated Django views,
-  not exposed as static files.
-- **Secrets**: All credentials in environment variables, never in source code.
-- **CORS**: Allowlist-based, never wildcard in production.
+Install the following tools:
 
----
+* Python 3.11
+* Node.js and npm
+* Git
+* Visual Studio Code or another editor
 
-## Windows Setup Instructions
+The commands below use Windows PowerShell.
 
-### Prerequisites
+## Installation
 
-Ensure the following are installed:
+### 1. Obtain the project
 
-| Tool     | Required Version | Check Command       |
-|----------|-----------------|---------------------|
-| Python   | 3.11            | `python --version`  |
-| Node.js  | 18+             | `node --version`    |
-| npm      | 9+              | `npm --version`     |
-| Git      | any recent      | `git --version`     |
-| PostgreSQL | 14+           | (for production)    |
-
-### 1. Clone the repository
+If cloning the repository:
 
 ```powershell
-git clone <repository-url> TrustVault
+git clone <repository-url>
 cd TrustVault
 ```
 
-### 2. Environment configuration
+If the project is already on your computer, open its existing directory instead.
+
+### 2. Configure environment variables
+
+From the project root:
 
 ```powershell
 Copy-Item .env.example .env
-# Edit .env and fill in your actual values before continuing.
 ```
 
----
+Review the example configuration and set the values required by your local settings.
 
-## Backend Installation
+**Security:** Never commit `.env`, actual secret keys, passwords, or other credentials. Do not reuse development secrets in production.
+
+### 3. Set up the backend
+
+From the project root:
 
 ```powershell
-# From the project root
+python -m venv .venv
+```
+
+Activate the virtual environment:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
+If PowerShell blocks activation in the current terminal, you can use the Python executable directly in subsequent commands.
+
+Install dependencies:
+
+```powershell
 cd backend
-
-# Create and activate a virtual environment
-python -m venv ..\.venv
-..\.venv\Scripts\Activate.ps1
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Run Django system checks
-python manage.py check
-
-# Apply migrations (SQLite by default for local dev)
-python manage.py migrate
-
-# Create a superuser (for the admin panel)
-python manage.py createsuperuser
-
-# Start the development server
-python manage.py runserver
+..\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-> **Note — Database configuration:**
-> The backend is configured for SQLite in local development for convenience.
-> PostgreSQL is required for production. Set `DB_ENGINE`, `DB_NAME`, `DB_USER`,
-> `DB_PASSWORD`, `DB_HOST`, and `DB_PORT` in your `.env` file, then re-run
-> `python manage.py migrate`.
-
----
-
-## Frontend Installation
+Run Django's system checks and migrations:
 
 ```powershell
-# From the project root
-cd frontend
+..\.venv\Scripts\python.exe manage.py check
+..\.venv\Scripts\python.exe manage.py migrate
+```
 
-# Install dependencies
+Create an administrator account if required:
+
+```powershell
+..\.venv\Scripts\python.exe manage.py createsuperuser
+```
+
+Start the backend:
+
+```powershell
+..\.venv\Scripts\python.exe manage.py runserver
+```
+
+The local API is available at:
+
+`http://127.0.0.1:8000/`
+
+Keep the backend terminal open while using the application.
+
+### 4. Set up the frontend
+
+Open a second terminal in VS Code and run:
+
+```powershell
+cd C:\Users\krish\Desktop\TrustVault\frontend
 npm install
-
-# Start the Vite development server
 npm run dev
+```
 
-# Build for production
+Use the local URL printed by Vite. The default is:
+
+`http://localhost:5173/`
+
+The frontend requires the Django backend to be running and its API base URL to be configured correctly.
+
+For a production frontend build:
+
+```powershell
 npm run build
 ```
 
-The frontend dev server runs on `http://localhost:5173` by default.
-The Django API must be running on `http://localhost:8000` for API calls to work.
+## API Documentation
 
----
+Start the Django backend before opening the following endpoints.
 
-## Environment Configuration
+### Swagger UI
 
-See [`.env.example`](.env.example) for all supported variables.
+`http://127.0.0.1:8000/api/docs/`
 
-Key variables:
+Use Swagger UI to explore the documented API operations.
 
-| Variable             | Purpose                                          |
-|----------------------|--------------------------------------------------|
-| `DJANGO_SECRET_KEY`  | Django cryptographic signing key — keep secret   |
-| `DJANGO_DEBUG`       | Set `False` in production                        |
-| `DB_*`               | PostgreSQL connection settings                   |
-| `VITE_API_BASE_URL`  | API base URL used by the React frontend          |
-| `MEDIA_ROOT`         | Absolute path for uploaded document storage      |
+### OpenAPI Schema
 
----
+`http://127.0.0.1:8000/api/schema/`
+
+This endpoint returns the generated OpenAPI specification. It normally displays raw schema content rather than the interactive Swagger interface.
+
+## Main API Endpoints
+
+| Endpoint                                                    | Method | Purpose                             |
+| ----------------------------------------------------------- | ------ | ----------------------------------- |
+| `/api/auth/csrf/`                                           | GET    | Obtain a CSRF token                 |
+| `/api/auth/login/`                                          | POST   | Authenticate a user                 |
+| `/api/auth/logout/`                                         | POST   | End the current session             |
+| `/api/auth/me/`                                             | GET    | Retrieve the current user           |
+| `/api/documents/`                                           | GET    | List accessible documents           |
+| `/api/documents/`                                           | POST   | Upload a document                   |
+| `/api/documents/<document_id>/`                             | GET    | Retrieve document details           |
+| `/api/documents/<document_id>/`                             | PATCH  | Update document metadata            |
+| `/api/documents/<document_id>/`                             | DELETE | Delete a document when authorized   |
+| `/api/documents/<document_id>/download/`                    | GET    | Download a document when authorized |
+| `/api/documents/<document_id>/permissions/`                 | GET    | List document permissions           |
+| `/api/documents/<document_id>/permissions/`                 | POST   | Grant or update a permission        |
+| `/api/documents/<document_id>/permissions/<permission_id>/` | DELETE | Revoke a permission                 |
+
+Authentication and permission requirements vary by endpoint. Consult Swagger UI and the backend implementation for exact request and response details.
+
+## Security Model
+
+### Server-Side Authorization
+
+The backend is the security boundary. Users cannot obtain additional privileges simply by modifying the frontend or submitting a different document identifier.
+
+### Document Permissions
+
+`READ` grants the supported read and download operations. `EDIT` permits the supported metadata-editing operations. Deletion and permission management have their own authorization rules.
+
+Revocation prevents access on subsequent requests when the backend checks the updated permission state. It cannot retrieve a file that a user has already downloaded.
+
+### Upload Validation
+
+The current implementation restricts supported file types and applies size and content validation. These checks reduce risk but do not guarantee that every uploaded document is harmless.
+
+### Audit Integrity
+
+The audit-chain verification command checks the integrity of recorded events and their hash links. A successful check does not make the underlying database impossible to tamper with, especially if an attacker has sufficient database privileges.
+
+See [`THREATS.md`](THREATS.md) for the threat analysis, known limitations, and verification evidence.
 
 ## Running Tests
 
-### Backend
+Run commands from the project root unless otherwise specified.
+
+### Full backend test suite
 
 ```powershell
 cd backend
-..\.venv\Scripts\Activate.ps1
-pytest
+..\.venv\Scripts\python.exe manage.py test
 ```
 
-### Frontend
+The full backend suite previously completed with **49 tests passing** during development.
+
+### Document and audit tests
 
 ```powershell
-cd frontend
-npm run test        # Vitest (when test suite is added)
-npm run type-check  # TypeScript type checking
+..\.venv\Scripts\python.exe manage.py test apps.documents apps.audit
 ```
 
----
+The document and audit suites most recently completed with **35 tests passing**.
 
-## Known Limitations (Task 1)
+Test results may change as the code evolves. Run the tests again against the current checkout before relying on these results.
 
-- Authentication is not yet implemented.
-- Document upload, preview, and download are not yet implemented.
-- Permission management UI is not yet implemented.
-- Audit logging is not yet implemented.
-- PostgreSQL has not been tested (SQLite used locally).
-- No automated tests exist yet — test scaffolding is planned for Task 2.
-- The frontend shows only the design system foundation; no functional screens exist.
+### Verify the audit chain
 
-These are honest limitations, not oversights. Each will be addressed in subsequent tasks.
+With the backend environment configured:
 
----
+```powershell
+..\.venv\Scripts\python.exe manage.py verify_audit_chain
+```
 
-## Recommended Next Task
+A previous verification reported:
 
-**Task 2 — Authentication**: Implement Django user model with roles,
-session-based login/logout, CSRF handling, and the React login page.
+```text
+Audit chain verified: 14 events checked.
+```
+
+The number of events depends on the database contents. The command should be run again to verify the current database state.
+
+### Frontend production build
+
+From the frontend directory:
+
+```powershell
+npm run build
+```
+
+This checks whether the frontend can produce its configured production build. It does not replace browser-based testing.
+
+## Environment Variables
+
+Review `.env.example` and the Django settings for the variables actually supported by this checkout.
+
+Typical configuration areas include:
+
+| Setting               | Purpose                                   |
+| --------------------- | ----------------------------------------- |
+| Django secret key     | Cryptographic signing                     |
+| Debug mode            | Enables or disables Django debug behavior |
+| Allowed hosts         | Restricts accepted host headers           |
+| Database settings     | Configures the database connection        |
+| Media storage         | Determines uploaded-file storage          |
+| Frontend API base URL | Configures the backend URL used by React  |
+| CORS and CSRF origins | Restricts permitted browser origins       |
+
+The exact variable names and defaults depend on the current settings implementation.
+
+## Production Considerations
+
+The application is currently documented and tested primarily in a local development environment. Before production use:
+
+* Disable Django debug mode.
+* Configure allowed hosts explicitly.
+* Serve the application over HTTPS.
+* Enable secure session and CSRF cookies where appropriate.

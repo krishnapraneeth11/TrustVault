@@ -33,8 +33,8 @@ DEBUG = os.environ.get("DJANGO_DEBUG", "True").strip().lower() in ("true", "1", 
 if not DEBUG and SECRET_KEY == _INSECURE_FALLBACK_KEY:
     raise ImproperlyConfigured(
         "DJANGO_SECRET_KEY must be set to a secure random value in production. "
-        "Run: python -c \"from django.core.management.utils import get_random_secret_key; "
-        "print(get_random_secret_key())\" and set the result in your .env file."
+        'Run: python -c "from django.core.management.utils import get_random_secret_key; '
+        'print(get_random_secret_key())" and set the result in your .env file.'
     )
 
 ALLOWED_HOSTS: list[str] = [
@@ -68,6 +68,7 @@ INSTALLED_APPS = [
     # Third-party
     "rest_framework",
     "corsheaders",
+    "drf_spectacular",
     # TrustVault applications
     "apps.accounts",
     "apps.documents",
@@ -77,11 +78,11 @@ INSTALLED_APPS = [
 
 # ── Middleware ────────────────────────────────────────────────────────────────
 MIDDLEWARE = [
-    "corsheaders.middleware.CorsMiddleware",           # must be before CommonMiddleware
+    "corsheaders.middleware.CorsMiddleware",  # must be before CommonMiddleware
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
-    "django.middleware.csrf.CsrfViewMiddleware",       # CSRF protection — do not remove
+    "django.middleware.csrf.CsrfViewMiddleware",  # CSRF protection — do not remove
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
@@ -144,7 +145,9 @@ else:
 
 # ── Password Validation ───────────────────────────────────────────────────────
 AUTH_PASSWORD_VALIDATORS = [
-    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
+    {
+        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"
+    },
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
     {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
@@ -195,12 +198,22 @@ REST_FRAMEWORK = {
     "DEFAULT_RENDERER_CLASSES": [
         "rest_framework.renderers.JSONRenderer",
     ],
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+}
+SPECTACULAR_SETTINGS = {
+    "TITLE": "TrustVault API",
+    "DESCRIPTION": (
+        "Secure document management with role-based access control, "
+        "document-level permissions, and auditable security events."
+    ),
+    "VERSION": "1.0.0",
+    "SERVE_INCLUDE_SCHEMA": False,
 }
 
 
 # ── Session ───────────────────────────────────────────────────────────────────
-SESSION_COOKIE_HTTPONLY = True      # Prevent JS access to session cookie
-SESSION_COOKIE_SAMESITE = "Lax"    # Prevent cross-site cookie sending
+SESSION_COOKIE_HTTPONLY = True  # Prevent JS access to session cookie
+SESSION_COOKIE_SAMESITE = "Lax"  # Prevent cross-site cookie sending
 
 # In production: set these to True and serve over HTTPS
 # SESSION_COOKIE_SECURE = True
@@ -212,4 +225,4 @@ SESSION_COOKIE_SAMESITE = "Lax"    # Prevent cross-site cookie sending
 # SECURE_HSTS_SECONDS = 31536000
 # SECURE_HSTS_INCLUDE_SUBDOMAINS = True
 # SECURE_SSL_REDIRECT = True
-X_FRAME_OPTIONS = "DENY"          # Prevent clickjacking
+X_FRAME_OPTIONS = "DENY"  # Prevent clickjacking

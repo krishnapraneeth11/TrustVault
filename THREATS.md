@@ -1,240 +1,410 @@
 # THREATS.md — TrustVault Threat Analysis
 
-This document records security threats relevant to the TrustVault platform,
-the planned mitigations, and — critically — which controls have actually been
-implemented and tested versus which are only planned.
+## 1. Purpose
 
-**Legend:**
-- ✅ **Implemented and tested** — control exists in the codebase and has passing tests.
-- 🔷 **Planned** — mitigation is designed; implementation is scheduled.
-- ⚠️ **Partially implemented** — some aspects exist; others are outstanding.
+This document describes the main security threats affecting TrustVault, the controls implemented to address them, the verification evidence available, and the remaining limitations.
+
+TrustVault is a document-management application built with Django REST Framework and React. Its security depends on server-side authentication, role-based authorization, document-level permissions, protected file delivery, and audit logging.
+
+Security claims in this document distinguish automated test results from manual verification and controls that still require additional work.
+
+## 2. Status Legend
+
+* ✅ **Implemented and tested:** The control is implemented and supported by automated tests or documented verification.
+* ⚠️ **Partially implemented:** Some protection exists, but additional verification or hardening is required.
+* 🔷 **Planned:** The control has not yet been implemented or verified.
+
+Passing tests do not prove the absence of all vulnerabilities.
 
 ---
 
-## T-01 — Unauthorised Document Access
+## T-01 — Unauthorized Document Access
 
-**Threat**: An authenticated user accesses a document they have no permission to view.
+**Threat:** An authenticated user accesses a document without the required permission.
 
-**Attack vectors**:
-- Direct URL guessing or enumeration of document IDs.
-- Modifying an API request to supply another user's document ID.
+**Attack vectors:**
 
-**Planned mitigations**:
-- Every document endpoint checks the requesting user's permission record before returning data.
-- Denied access attempts are logged to the audit trail.
-- Document storage paths are not predictable from document IDs.
+* Requesting another user's document through a direct API request.
+* Guessing or obtaining a document UUID.
+* Calling the download endpoint without authorization.
+* Attempting to bypass restrictions enforced by the frontend.
 
-**Status**: 🔷 Planned — no document endpoints exist yet.
+**Mitigations:**
+
+* Enforce document authorization on the Django backend.
+* Check document-level permissions before returning protected document data.
+* Protect downloads with server-side authorization.
+* Record relevant successful and denied security events in the audit trail.
+* Treat frontend visibility as a usability feature, not a security boundary.
+
+**Status:** ✅ Implemented; automated document and audit tests passed.
+
+**Verification evidence:**
+
+* The document and audit application test suites completed with 35 tests passing.
+* Manual testing confirmed that a viewer with READ permission could access and download an authorized document.
+* Manual testing confirmed that a viewer without the required permission received HTTP 403 for a protected operation.
+
+The complete backend test suite also previously passed 49 tests.
+
+**Remaining limitation:** These results do not establish that every possible authorization bypass has been tested.
 
 ---
 
 ## T-02 — IDOR (Insecure Direct Object Reference)
 
-**Threat**: An attacker manipulates a numeric or sequential document ID in a URL or request
-body to access, modify, or delete documents belonging to other users.
+**Threat:** An attacker manipulates a document identifier to access or modify a document belonging to another user.
 
-**Attack vectors**:
-- Incrementing `/api/documents/1/` to `/api/documents/2/`.
-- Supplying another user's document ID in a share or download request.
+**Attack vectors:**
 
-**Planned mitigations**:
-- Use UUIDs (not sequential integers) as public document identifiers.
-- Object-level permission checks in every DRF view using a custom `IsDocumentAuthorised` permission class.
-- Tests that verify a Viewer for document A cannot access document B.
+* Replacing a document UUID in an API URL.
+* Sending direct requests that bypass frontend restrictions.
+* Attempting to modify or delete another user's document.
+* Requesting permission changes for a document the requester does not own.
 
-**Status**: 🔷 Planned — UUID model field and permission class not yet created.
+**Mitigations:**
 
----
+* Use UUIDs for public document identifiers.
+* Enforce object-level authorization in backend views.
+* Check ownership or explicit document permissions before protected operations.
+* Test unauthorized access to document details, downloads, updates, and deletions.
 
-## T-03 — Permission Revocation Race Condition
+**Status:** ⚠️ Implemented with automated testing.
 
-**Threat**: A user whose access has been revoked continues to access a document
-because the revocation is not immediately enforced.
+The application uses UUID document identifiers and backend authorization checks. The document and audit test suites passed 35 tests.
 
-**Attack vectors**:
-- Revocation is cached and not checked on every request.
-- Active download sessions continue after revocation.
-- Frontend hides the button but the API still serves the document.
-
-**Planned mitigations**:
-- Permission checks performed server-side on every API request, never cached indefinitely.
-- No frontend-only permission enforcement.
-- Revoked permissions take effect on the next request.
-
-**Status**: 🔷 Planned.
+**Remaining limitation:** UUIDs make identifiers harder to guess, but UUIDs are not authorization controls. Security depends on server-side permission checks for every protected operation.
 
 ---
 
-## T-04 — Insecure File Storage
+## T-03 — Permission Revocation
 
-**Threat**: Uploaded documents are stored in a publicly accessible location and can be
-downloaded without authentication.
+**Threat:** A user continues accessing a document after their permission has been revoked.
 
-**Attack vectors**:
-- Documents placed in `frontend/public/` or Django's `STATIC_ROOT`.
-- Direct URL access to `MEDIA_ROOT` if it is web-accessible.
-- Predictable file paths derived from document names or IDs.
+**Attack vectors:**
 
-**Planned mitigations**:
-- `MEDIA_ROOT` is outside the web root and not served by the web server directly.
-- Documents are served exclusively through authenticated Django views that check permissions.
-- File names are replaced with random UUIDs on the server.
-- `.env.example` documents the `MEDIA_ROOT` variable.
+* Revoking access only in the frontend.
+* Caching permissions without rechecking them.
+* Continuing to use a previously known document URL.
+* Attempting another download or update after revocation.
 
-**Status**: 🔷 Planned — file serving views not yet implemented.
+**Mitigations:**
+
+* Enforce document permissions on the backend.
+* Recheck authorization on subsequent requests.
+* Remove or update permission records when access is revoked.
+* Ensure that hiding a document in the UI is not the only access restriction.
+
+**Status:** ✅ Implemented and manually verified.
+
+**Verification evidence:**
+
+* A viewer could download a document while READ permission was granted.
+* After READ permission was revoked, subsequent access and download attempts were denied.
+* A viewer with EDIT permission could update document metadata.
+* After the permission was changed to READ, subsequent metadata updates were denied with HTTP 403.
+
+**Remaining limitation:** Revocation prevents subsequent authorized requests. It cannot retract a document that a user has already downloaded or copied.
 
 ---
 
-## T-05 — Upload Validation Bypass
+## T-04 — Insecure File Storage and Delivery
 
-**Threat**: A user uploads a malicious file (executable, script, oversized file, or
-polyglot) by renaming it with an allowed extension.
+**Threat:** Uploaded documents become accessible without authentication or appropriate authorization.
 
-**Attack vectors**:
-- Uploading `malware.exe` renamed to `report.pdf`.
-- Uploading a polyglot file that is both a valid PDF and an HTML script.
-- Uploading a file that exceeds the configured size limit.
-- Uploading a ZIP bomb to exhaust disk space.
+**Attack vectors:**
 
-**Planned mitigations**:
-- Server-side MIME type validation using `python-magic` (reads file headers, not filename).
-- Allowlist of permitted content types (PDF, DOCX, XLSX, PNG, JPEG, etc.).
-- Configurable maximum file size enforced in Django before writing to disk.
-- Uploaded files renamed to a UUID — original filename stored in the database only.
-- Files quarantined before being marked as available.
+* Exposing uploaded files through a public static directory.
+* Allowing direct access to stored files without permission checks.
+* Deriving storage paths from user-controlled filenames.
+* Misconfiguring file storage during deployment.
 
-**Status**: 🔷 Planned — upload endpoint does not exist yet.
+**Mitigations:**
+
+* Serve protected downloads through authenticated backend views.
+* Check document authorization before sending file contents.
+* Validate uploaded files on the server.
+* Avoid relying on frontend checks to protect stored documents.
+
+**Status:** ⚠️ Implemented with deployment verification outstanding.
+
+The application includes a protected document download endpoint and server-side permission checks.
+
+**Remaining work:**
+
+* Verify that production storage cannot be accessed directly without authorization.
+* Verify that deployment configuration does not expose uploaded files publicly.
+* Confirm production file-storage permissions and backup protections.
+
+---
+
+## T-05 — Malicious or Invalid File Uploads
+
+**Threat:** An attacker uploads an invalid, oversized, or potentially malicious file.
+
+**Attack vectors:**
+
+* Renaming an unsupported file with an allowed extension.
+* Uploading a file that exceeds the configured size limit.
+* Supplying misleading content types.
+* Uploading malformed documents or specially crafted archive files.
+
+**Mitigations:**
+
+* Apply a server-side file-type allowlist.
+* Enforce the configured maximum upload size.
+* Validate file content in addition to trusting the filename.
+* Validate supported document and archive formats.
+* Keep file validation on the backend.
+
+**Status:** ⚠️ Implemented with limitations.
+
+The current implementation supports a restricted set of document formats, including PDF, DOCX, XLSX, and TXT, with size and content validation.
+
+**Remaining limitations:**
+
+* No malware-scanning service is currently documented as implemented.
+* File-format validation does not guarantee that a document is harmless.
+* Protection against all archive-bomb and parser-based attacks has not been established.
 
 ---
 
 ## T-06 — Audit Log Tampering
 
-**Threat**: An attacker or compromised administrator modifies or deletes audit log entries
-to conceal unauthorised access.
+**Threat:** An attacker modifies or deletes audit records to conceal unauthorized activity.
 
-**Attack vectors**:
-- Direct database modification by a user with database access.
-- A Django view that allows DELETE on audit records.
-- An administrator using the Django admin panel to edit logs.
+**Attack vectors:**
 
-**Planned mitigations**:
-- Audit log records are append-only; no UPDATE or DELETE exposed via API.
-- Django admin panel restricted from modifying audit entries (`has_change_permission = False`).
-- Database-level triggers or row-level security considered for production PostgreSQL.
-- Logs include the server-side timestamp — clients cannot supply their own.
+* Modifying database records directly.
+* Altering or deleting historical audit events.
+* Attempting to conceal a denied access request.
+* Compromising a privileged account or the database host.
 
-**Status**: 🔷 Planned — audit model not yet created.
+**Mitigations:**
+
+* Record security events on the backend.
+* Maintain a hash-linked audit chain.
+* Verify event-chain integrity using the `verify_audit_chain` management command.
+* Restrict access to audit-management operations.
+* Record security-relevant outcomes, including successful and denied operations where implemented.
+
+**Status:** ⚠️ Tamper-evident audit chain implemented and verified.
+
+**Verification command:**
+
+```powershell
+python manage.py verify_audit_chain
+```
+
+**Latest observed result:**
+
+```text
+Audit chain verified: 14 events checked.
+```
+
+This result confirms that the verification command accepted the 14 recorded events at the time of the check.
+
+**Important limitation:** A hash chain can reveal changes that break the verified chain, but it does not make the database impossible to tamper with. An attacker with sufficient database privileges might rewrite records and recalculate hashes. Stronger protection could include external append-only logging, independent integrity checkpoints, and restricted database administration.
+
+The verification result is evidence of a successful check, not proof of absolute immutability.
 
 ---
 
 ## T-07 — Privilege Escalation
 
-**Threat**: A Viewer or Document Owner manipulates a request to gain Administrator privileges
-or to grant themselves additional permissions on a document they do not own.
+**Threat:** A viewer or document owner obtains administrative privileges or performs operations beyond their authority.
 
-**Attack vectors**:
-- Supplying `role=admin` in a registration or profile-update request.
-- Using a Viewer token to call an Admin-only endpoint.
-- Modifying a permission record for a document they do not own.
+**Attack vectors:**
 
-**Planned mitigations**:
-- Role field is not writable via API — set only by server-side logic and admins.
-- Role-based permission classes applied at the view level in DRF.
-- Object ownership verified before any permission mutation is allowed.
-- Tests for each role attempting to access out-of-scope endpoints.
+* Attempting to change the user's role through an API request.
+* Calling administrator-only endpoints as a non-administrator.
+* Granting permissions on documents without sufficient authority.
+* Attempting to modify documents without EDIT permission.
 
-**Status**: ✅ Implemented — `IsAdmin` and `IsOwnerOrAdmin` DRF permission classes in  
-`apps/accounts/permissions.py`. Role field excluded from all writable serialiser fields.  
-Tests 9, 10, 11, and 12 verify role enforcement and confirm a user cannot self-promote.  
-Document-level ownership checks will be added in Task 3 when document endpoints are created.
+**Mitigations:**
+
+* Define platform roles: ADMIN, OWNER, and VIEWER.
+* Enforce role checks on the backend.
+* Prevent ordinary profile operations from changing protected role fields.
+* Check ownership and permission-management authority before granting or revoking access.
+* Enforce EDIT and READ restrictions on document operations.
+
+**Status:** ✅ Implemented with automated testing.
+
+The project includes role-based permission classes and document-level authorization checks.
+
+**Verification evidence:**
+
+* The document and audit application test suites passed 35 tests.
+* Manual testing confirmed that a viewer with READ permission could not update document metadata.
+* Manual testing confirmed that unauthorized deletion was denied.
+
+**Remaining limitation:** These checks do not establish that every possible privilege-escalation path has been tested.
 
 ---
 
 ## T-08 — Session Security
 
-**Threat**: An attacker hijacks a valid session cookie to impersonate an authenticated user.
+**Threat:** An attacker steals or abuses a session to impersonate an authenticated user.
 
-**Attack vectors**:
-- Session cookie transmitted over HTTP (not HTTPS) and intercepted.
-- XSS vulnerability used to steal the session cookie from `document.cookie`.
-- Session fixation: attacker pre-sets a session ID before login.
+**Attack vectors:**
 
-**Planned mitigations**:
-- `SESSION_COOKIE_SECURE = True` in production (requires HTTPS).
-- `SESSION_COOKIE_HTTPONLY = True` — cookie inaccessible to JavaScript.
-- `SESSION_COOKIE_SAMESITE = 'Lax'` — prevents cross-site sending.
-- Session ID rotated on login to prevent fixation.
-- Sessions expire after a configurable idle timeout.
+* Intercepting session cookies over an insecure connection.
+* Exploiting an XSS vulnerability.
+* Reusing a compromised session.
+* Weak production session or cookie configuration.
 
-**Status**: ✅ Implemented — `SESSION_COOKIE_HTTPONLY = True` and `SESSION_COOKIE_SAMESITE = 'Lax'`  
-are set in `settings.py`. Django's `login()` call rotates the session ID on login (built-in to  
-Django's auth framework). `SESSION_COOKIE_SECURE = True` is documented but commented out pending  
-HTTPS configuration. Session expiry will be configured when deployment is prepared.  
-Remaining limitation: brute-force rate limiting is not yet implemented (see T-07 notes).
+**Mitigations:**
+
+* Use Django session authentication.
+* Use HTTP-only session cookies.
+* Configure an appropriate SameSite cookie policy.
+* Use HTTPS in production.
+* Configure secure session cookies when HTTPS is enabled.
+* Rotate the session identifier during login using Django's authentication mechanisms.
+
+**Status:** ⚠️ Partially implemented; production configuration must be verified.
+
+The local settings include HTTP-only and SameSite session-cookie protections.
+
+**Remaining work:**
+
+* Verify HTTPS and secure-cookie settings in the deployed environment.
+* Review session expiry and timeout behavior.
+* Implement or configure login rate limiting.
+* Review session invalidation and incident-response procedures.
 
 ---
 
 ## T-09 — CSRF and CORS
 
-**Threat**:
-- **CSRF**: A malicious website triggers a state-changing request on behalf of an
-  authenticated user.
-- **CORS**: The Django API accepts requests from unintended origins.
+**Threat:** A malicious website attempts to trigger authenticated state-changing requests, or the API permits requests from unintended origins.
 
-**Attack vectors**:
-- Embedding a form on an attacker's page that POSTs to the TrustVault API.
-- A browser making a cross-origin fetch from a malicious tab if CORS is misconfigured.
+**Attack vectors:**
 
-**Planned mitigations**:
-- Django's built-in CSRF middleware enabled and never disabled.
-- CSRF token required for all non-safe methods (POST, PUT, PATCH, DELETE).
-- `CORS_ALLOWED_ORIGINS` set to an explicit allowlist — never `'*'` in production.
-- `CORS_ALLOW_CREDENTIALS = True` combined with the allowlist.
+* Submitting cross-site forms against authenticated endpoints.
+* Misconfiguring allowed frontend origins.
+* Allowing credentialed requests from untrusted origins.
 
-**Status**: ✅ Implemented — CSRF middleware is active. DRF's `SessionAuthentication` enforces  
-CSRF on all authenticated state-changing endpoints. `GET /api/auth/csrf/` endpoint issues the  
-CSRF cookie to the SPA; the React API client sends `X-CSRFToken` on all POST requests.  
-`CORS_ALLOWED_ORIGINS` is env-var driven (`http://localhost:5173` by default). Wildcard CORS  
-is never used. `CSRF_TRUSTED_ORIGINS` added to `settings.py`. Test 14 verifies CSRF enforcement.  
-Remaining limitation: login endpoint itself is not CSRF-protected (standard practice for  
-cookie-based SPA login — no session exists before first login, so no CSRF token can be set).
+**Mitigations:**
 
----
+* Keep Django's CSRF middleware enabled.
+* Use CSRF tokens for applicable state-changing requests.
+* Use an explicit CORS origin allowlist.
+* Avoid wildcard CORS origins when credentials are enabled.
+* Configure trusted CSRF origins for the deployed frontend.
 
-## T-10 — Sensitive Information in Error Messages
+**Status:** ⚠️ Implemented; deployment configuration and authentication behavior require review.
 
-**Threat**: Django error pages, stack traces, or API error responses leak internal details
-such as file paths, database queries, model field names, or configuration values.
+The local application uses session authentication, a CSRF-token endpoint, and an allowlist-based CORS configuration.
 
-**Attack vectors**:
-- `DEBUG = True` in production, exposing the full Django debug page.
-- DRF serialiser validation errors that reveal internal model structure.
-- Exception messages forwarded verbatim to the API response.
+**Remaining work:**
 
-**Planned mitigations**:
-- `DJANGO_DEBUG=False` enforced in production via environment variable.
-- Custom DRF exception handler returns generic error messages to clients.
-- Internal error details logged server-side only, never in the API response.
-- `ALLOWED_HOSTS` correctly configured to prevent HTTP Host header attacks.
-
-**Status**: ⚠️ Partially planned — `DEBUG` is read from the environment variable in settings.
-Custom exception handler is not yet implemented.
+* Verify the actual production frontend origin.
+* Verify CSRF and CORS behavior in the deployed environment.
+* Review the login endpoint's CSRF design and associated protections.
+* Confirm that all state-changing endpoints behave as expected.
 
 ---
 
-## Additional Threats (Noted for Future Analysis)
+## T-10 — Sensitive Information in Error Responses
 
-- **Brute-force login**: Rate limiting and account lockout — 🔷 Planned. The login endpoint currently  
-  has no rate limiting. `django-ratelimit` or a reverse-proxy solution (nginx, Cloudflare) should be  
-  added before production deployment. The generic error response prevents username enumeration, which  
-  reduces but does not eliminate brute-force risk.
-- **Insecure password reset**: Secure token, expiry, single-use — 🔷 Planned.
-- **Dependency vulnerabilities**: `pip audit`, `npm audit` in CI — 🔷 Planned.
-- **SQL injection**: Django ORM used exclusively; raw queries will be reviewed — 🔷 Planned.
-- **XSS**: React's JSX escaping + Content-Security-Policy header — 🔷 Planned.
-- **Clickjacking**: `X-Frame-Options: DENY` header — 🔷 Planned.
+**Threat:** Error responses reveal internal application details that help an attacker understand or exploit the system.
+
+**Attack vectors:**
+
+* Exposing Django debug pages in production.
+* Returning stack traces or internal paths.
+* Revealing secrets through configuration errors.
+* Misconfiguring allowed hosts.
+
+**Mitigations:**
+
+* Disable Django debug mode in production.
+* Configure allowed hosts explicitly.
+* Avoid returning unnecessary internal exception details.
+* Keep secrets in environment variables rather than source code.
+* Review production logging and error handling.
+
+**Status:** ⚠️ Production hardening requires verification.
+
+**Remaining work:**
+
+* Verify `DEBUG=False` in production.
+* Verify `ALLOWED_HOSTS`.
+* Review exception responses for information disclosure.
+* Confirm that environment variables and secrets are configured correctly.
 
 ---
 
-*This document must be updated whenever a security control is implemented, tested,
-or invalidated. Do not mark a control as ✅ implemented unless it has passing tests.*
+## 3. Additional Threats and Future Improvements
+
+### Brute-force Login
+
+**Risk:** An attacker repeatedly guesses account passwords.
+
+**Status:** 🔷 Rate limiting and account-lockout protections require verification or implementation.
+
+### Cross-Site Scripting (XSS)
+
+**Risk:** Malicious content executes in a user's browser.
+
+**Status:** ⚠️ React provides contextual escaping for ordinary rendered text, but this alone does not eliminate XSS. Review unsafe HTML rendering, dependencies, and production security headers.
+
+### Dependency Vulnerabilities
+
+**Risk:** Vulnerable dependencies introduce exploitable weaknesses.
+
+**Status:** 🔷 Add dependency vulnerability checks to the development and release workflow.
+
+### Clickjacking
+
+**Risk:** A malicious website embeds the application to trick a user into interacting with it.
+
+**Status:** ⚠️ Verify appropriate production framing protections, such as `X-Frame-Options` or CSP `frame-ancestors`.
+
+### Database and Backup Security
+
+**Risk:** Database or backup access exposes documents, user records, or audit events.
+
+**Status:** 🔷 Production database permissions, backup protection, retention, and recovery procedures require separate verification.
+
+### Malware Scanning
+
+**Risk:** A valid-looking uploaded document contains malicious content.
+
+**Status:** 🔷 No malware-scanning capability is currently claimed as implemented.
+
+---
+
+## 4. Verification Summary
+
+The following results have been observed during development:
+
+| Check                                | Observed result                            |
+| ------------------------------------ | ------------------------------------------ |
+| Full backend test suite              | 49 tests passed in an earlier run          |
+| Document and audit application tests | 35 tests passed in the latest run          |
+| OpenAPI schema endpoint              | HTTP 200                                   |
+| Audit-chain verification             | 14 events checked successfully             |
+| Document permission behavior         | READ, EDIT, and revocation manually tested |
+
+These checks are snapshots from development, not a guarantee of security in every environment.
+
+The document and audit test result is a subset of the full backend test result; do not add the two counts together.
+
+## 5. Security Principles
+
+TrustVault follows these principles:
+
+1. Authorization decisions must be enforced by the backend.
+2. A document identifier is not proof of permission.
+3. Revoked access must be denied on subsequent requests.
+4. Audit logs should make unauthorized activity easier to investigate.
+5. A successful integrity check is not proof that tampering is impossible.
+6. Security documentation must distinguish implemented controls from planned work.
+7. Production deployment must be reviewed separately from local development.
+
+---
+
+*This threat model should be updated whenever a control changes, a new vulnerability is discovered, or verification results change. Claims should remain consistent with the code and available test evidence.*

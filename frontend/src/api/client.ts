@@ -57,9 +57,12 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   const isWriteMethod = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method);
 
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
     'Accept': 'application/json',
   };
+
+  if (!(body instanceof FormData) && body !== undefined) {
+    headers['Content-Type'] = 'application/json';
+  }
 
   if (isWriteMethod) {
     const token = await ensureCsrf();
@@ -70,7 +73,12 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     method,
     credentials: 'include',  // send session cookie
     headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
+    body:
+      body instanceof FormData
+        ? body
+        : body !== undefined
+          ? JSON.stringify(body)
+          : undefined,
   });
 
   // Handle 204 No Content
@@ -119,4 +127,156 @@ export const authApi = {
 
   /** Return the current authenticated user, or throw 403 if not logged in. */
   me: () => request<User>('/auth/me/'),
+};
+// ── Document endpoints ────────────────────────────────────────────────
+
+export type DocumentCategory =
+  | 'HR'
+  | 'FINANCE'
+  | 'LEGAL'
+  | 'POLICIES'
+  | 'GENERAL';
+
+export interface DocumentItem {
+  id: string;
+  title: string;
+  category: DocumentCategory;
+  owner_username: string;
+  original_filename: string;
+  content_type: string;
+  file_size: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DocumentUploadResult {
+  id: string;
+  title: string;
+  category: DocumentCategory;
+  original_filename: string;
+  content_type: string;
+  file_size: number;
+  created_at: string;
+}
+export type AccessLevel = 'READ' | 'EDIT';
+
+export interface DocumentPermission {
+  id: number;
+  user: number;
+  username: string;
+  access_level: AccessLevel;
+  granted_at: string;
+}
+
+export interface PermissionGrantInput {
+  username: string;
+  access_level: AccessLevel;
+}
+
+export const documentsApi = {
+  list: () => request<DocumentItem[]>('/documents/'),
+
+  upload: async (
+    file: File,
+    title: string,
+    category: DocumentCategory,
+  ): Promise<DocumentUploadResult> => {
+    const form = new FormData();
+
+    form.append('upload', file);
+    form.append('title', title);
+    form.append('category', category);
+
+    return request<DocumentUploadResult>('/documents/', {
+      method: 'POST',
+      body: form,
+    });
+  },
+
+  get: (id: string) =>
+    request<DocumentItem>(`/documents/${id}/`),
+
+  update: (
+    id: string,
+    data: Partial<Pick<DocumentItem, 'title' | 'category'>>,
+  ) =>
+    request<DocumentItem>(`/documents/${id}/`, {
+      method: 'PATCH',
+      body: data,
+    }),
+
+  delete: (id: string) =>
+    request<void>(`/documents/${id}/`, {
+      method: 'DELETE',
+    }),
+
+  download: async (id: string, filename: string): Promise<void> => {
+    const response = await fetch(
+      `${API_BASE}/documents/${id}/download/`,
+      {
+        method: 'GET',
+        credentials: 'include',
+        headers: {
+          'Accept': 'application/octet-stream',
+        },
+      },
+    );
+
+    if (!response.ok) {
+      let message = `Download failed: HTTP ${response.status}`;
+
+      try {
+        const data = await response.json() as { detail?: string };
+        message = data.detail ?? message;
+      } catch {
+        // Keep the HTTP status message if the response isn't JSON.
+      }
+
+      throw new ApiError(message, response.status);
+    }
+
+    const blob = await response.blob();
+    const objectUrl = URL.createObjectURL(blob);
+
+    try {
+      const link = document.createElement('a');
+      link.href = objectUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } finally {
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+    }
+  },
+    // List permissions for a document.
+  listPermissions: (documentId: string) =>
+    request<DocumentPermission[]>(
+      `/documents/${documentId}/permissions/`,
+    ),
+
+  // Grant READ or EDIT access to a user.
+  grantPermission: (
+    documentId: string,
+    data: PermissionGrantInput,
+  ) =>
+    request<DocumentPermission>(
+      `/documents/${documentId}/permissions/`,
+      {
+        method: 'POST',
+        body: data,
+      },
+    ),
+
+  // Revoke a user's permission.
+  revokePermission: (
+    documentId: string,
+    permissionId: number,
+  ) =>
+    request<void>(
+      `/documents/${documentId}/permissions/${permissionId}/`,
+      {
+        method: 'DELETE',
+      },
+    ),
 };

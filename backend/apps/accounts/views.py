@@ -34,6 +34,8 @@ from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from drf_spectacular.utils import extend_schema, OpenApiResponse
+from rest_framework import serializers
 
 from .models import User
 from .permissions import IsAdmin
@@ -54,6 +56,15 @@ class CsrfTokenView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
 
+    @extend_schema(
+        tags=["auth"],
+        summary="Get CSRF token",
+        responses={
+            200: OpenApiResponse(
+                description="Returns the CSRF token and sets the CSRF cookie."
+            )
+        },
+    )
     @method_decorator(ensure_csrf_cookie)
     def get(self, request):
         token = get_token(request)
@@ -67,23 +78,36 @@ class LoginView(APIView):
     Body: {"username": "...", "password": "..."}
 
     Success (200): returns the authenticated user object.
-    Failure (400): returns a generic error — does not reveal whether the
-                   username exists or the password was incorrect.
-
-    Authentication not required (the user is logging in), but CSRF IS enforced.
-    DRF's SessionAuthentication enforces CSRF; we keep it in authentication_classes
-    so the middleware-level check runs, but set permission_classes to AllowAny so
-    unauthenticated users can reach the view.
+    Failure (400): returns a generic invalid-credentials error.
     """
 
-    # Keep SessionAuthentication so DRF enforces CSRF on this endpoint.
-    # AllowAny means unauthenticated requests can proceed — login is public.
     permission_classes = [AllowAny]
 
+    @extend_schema(
+        tags=["auth"],
+        summary="Log in",
+        description='Submit credentials as {"username": "...", "password": "..."}.',
+        request={
+            "application/json": {
+                "type": "object",
+                "required": ["username", "password"],
+                "properties": {
+                    "username": {"type": "string"},
+                    "password": {"type": "string", "format": "password"},
+                },
+            }
+        },
+        responses={
+            200: UserSerializer,
+            400: OpenApiResponse(description="Invalid credentials or request."),
+            403: OpenApiResponse(description="Account is inactive."),
+        },
+    )
     def post(self, request):
-        try:
-            body = json.loads(request.body)
-        except (json.JSONDecodeError, AttributeError):
+        # DRF parses the request body safely.
+        body = request.data
+
+        if not isinstance(body, dict):
             return Response(
                 {"detail": "Invalid request body."},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -92,16 +116,25 @@ class LoginView(APIView):
         username = (body.get("username") or "").strip()
         password = body.get("password") or ""
 
+        if not isinstance(username, str) or not isinstance(password, str):
+            return Response(
+                {"detail": "Invalid username or password format."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         if not username or not password:
             return Response(
                 {"detail": "Username and password are required."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        user = authenticate(request, username=username, password=password)
+        user = authenticate(
+            request,
+            username=username,
+            password=password,
+        )
 
         if user is None:
-            # Generic message — do not reveal whether the username exists.
             return Response(
                 {"detail": "Invalid credentials."},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -114,23 +147,49 @@ class LoginView(APIView):
             )
 
         login(request, user)
+
         serializer = UserSerializer(user)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+
+        return Response(
+            serializer.data,
+            status=status.HTTP_200_OK,
+        )
+
+
+class LogoutResponseSerializer(serializers.Serializer):
+    detail = serializers.CharField()
 
 
 class LogoutView(APIView):
     """
     POST /api/auth/logout/
 
-    Invalidates the current session completely (flush, not just clear).
-    Requires authentication — unauthenticated logout attempts return 403.
+    Invalidates the current session completely.
+    Requires authentication.
     """
 
     permission_classes = [IsAuthenticated]
+    serializer_class = LogoutResponseSerializer
 
+    @extend_schema(
+        tags=["auth"],
+        operation_id="auth_logout",
+        summary="Log out",
+        description="Invalidates the authenticated user's session.",
+        responses={
+            200: LogoutResponseSerializer,
+            403: OpenApiResponse(
+                description="Authentication required.",
+            ),
+        },
+    )
     def post(self, request):
-        logout(request)  # calls request.session.flush() internally
-        return Response({"detail": "Logged out."}, status=status.HTTP_200_OK)
+        logout(request)
+
+        return Response(
+            {"detail": "Logged out."},
+            status=status.HTTP_200_OK,
+        )
 
 
 class MeView(APIView):
@@ -143,6 +202,11 @@ class MeView(APIView):
 
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        tags=["auth"],
+        summary="Get current user",
+        responses={200: UserSerializer},
+    )
     def get(self, request):
         serializer = UserSerializer(request.user)
         return Response(serializer.data)
@@ -160,6 +224,14 @@ class AdminProbeView(APIView):
 
     permission_classes = [IsAuthenticated, IsAdmin]
 
+    @extend_schema(
+        tags=["auth"],
+        summary="Verify administrator access",
+        responses={
+            200: OpenApiResponse(description="Administrator access confirmed."),
+            403: OpenApiResponse(description="Administrator access denied."),
+        },
+    )
     def get(self, request):
         return Response(
             {

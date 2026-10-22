@@ -2,12 +2,16 @@ from django.http import FileResponse
 from django.shortcuts import get_object_or_404
 from apps.audit.models import AuditEvent
 from apps.audit.services import record_audit_event
+from rest_framework.renderers import BaseRenderer
+from django.contrib.auth import get_user_model
+from drf_spectacular.utils import extend_schema, OpenApiResponse
 
 from rest_framework import generics, permissions, status
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from django.db import transaction
 
 from .models import Document, DocumentPermission
 from .serializers import (
@@ -15,6 +19,8 @@ from .serializers import (
     DocumentDetailSerializer,
     DocumentPermissionSerializer,
 )
+
+
 def audit_denied(request, action, document_id="", details=None):
     record_audit_event(
         request=request,
@@ -34,10 +40,14 @@ def get_document_access(document, user):
     if document.owner_id == user.id:
         return "OWNER"
 
-    permission = DocumentPermission.objects.filter(
-        document=document,
-        user=user,
-    ).only("access_level").first()
+    permission = (
+        DocumentPermission.objects.filter(
+            document=document,
+            user=user,
+        )
+        .only("access_level")
+        .first()
+    )
 
     if permission:
         return permission.access_level
@@ -63,9 +73,7 @@ def get_authorized_document(request, document_id, required_access="READ"):
             document_id=document.pk,
             details={"required_access": required_access},
         )
-        raise PermissionDenied(
-            "You do not have permission to access this document."
-        )
+        raise PermissionDenied("You do not have permission to access this document.")
 
     # Users with READ access cannot edit document metadata.
     if required_access == "EDIT" and access not in {"OWNER", "EDIT"}:
@@ -75,9 +83,7 @@ def get_authorized_document(request, document_id, required_access="READ"):
             document_id=document.pk,
             details={"required_access": required_access},
         )
-        raise PermissionDenied(
-            "You need edit permission to perform this action."
-        )
+        raise PermissionDenied("You need edit permission to perform this action.")
 
     return document, access
 
@@ -93,9 +99,7 @@ class DocumentListCreateView(generics.ListCreateAPIView):
         from django.db.models import Q
 
         return (
-            Document.objects.filter(
-                Q(owner=user) | Q(permissions__user=user)
-            )
+            Document.objects.filter(Q(owner=user) | Q(permissions__user=user))
             .select_related("owner")
             .distinct()
         )
@@ -123,6 +127,15 @@ class DocumentListCreateView(generics.ListCreateAPIView):
 class DocumentDetailView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(
+        tags=["documents"],
+        summary="Get document details",
+        responses={
+            200: DocumentDetailSerializer,
+            403: OpenApiResponse(description="Document access denied."),
+            404: OpenApiResponse(description="Document not found."),
+        },
+    )
     def get(self, request, document_id):
         document, _ = get_authorized_document(
             request,
@@ -141,33 +154,53 @@ class DocumentDetailView(APIView):
 
         return Response(serializer.data)
 
+    @extend_schema(
+        tags=["documents"],
+        summary="Update document metadata",
+        request=DocumentDetailSerializer,
+        responses={
+            200: DocumentDetailSerializer,
+            403: OpenApiResponse(description="Edit permission required."),
+            404: OpenApiResponse(description="Document not found."),
+        },
+    )
     def patch(self, request, document_id):
-        document, _ = get_authorized_document(
-            request,
-            document_id,
-            "EDIT",
-        )
+        with transaction.atomic():
+            document, _ = get_authorized_document(
+                request,
+                document_id,
+                "EDIT",
+            )
 
-        serializer = DocumentDetailSerializer(
-            document,
-            data=request.data,
-            partial=True,
-        )
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
+            serializer = DocumentDetailSerializer(
+                document,
+                data=request.data,
+                partial=True,
+            )
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
 
-        record_audit_event(
-            request=request,
-            action="DOCUMENT_UPDATE",
-            outcome=AuditEvent.Outcome.SUCCESS,
-            document_id=document.pk,
-            details={
-                "updated_fields": sorted(serializer.validated_data.keys()),
-            },
-        )
+            record_audit_event(
+                request=request,
+                action="DOCUMENT_UPDATE",
+                outcome=AuditEvent.Outcome.SUCCESS,
+                document_id=document.pk,
+                details={
+                    "updated_fields": sorted(serializer.validated_data.keys()),
+                },
+            )
 
-        return Response(serializer.data)
+            return Response(serializer.data)
 
+    @extend_schema(
+        tags=["documents"],
+        summary="Delete document",
+        responses={
+            204: OpenApiResponse(description="Document deleted."),
+            403: OpenApiResponse(description="Only the owner can delete the document."),
+            404: OpenApiResponse(description="Document not found."),
+        },
+    )
     def delete(self, request, document_id):
         document, access = get_authorized_document(
             request,
@@ -182,9 +215,7 @@ class DocumentDetailView(APIView):
                 "DOCUMENT_DELETE",
                 document_id=document.pk,
             )
-            raise PermissionDenied(
-                "Only the document owner can delete this document."
-            )
+            raise PermissionDenied("Only the document owner can delete this document.")
 
         document_id_for_audit = str(document.pk)
         original_filename = document.original_filename
@@ -207,9 +238,30 @@ class DocumentDetailView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+class DownloadRenderer(BaseRenderer):
+    media_type = "*/*"
+    format = "binary"
+    render_style = "binary"
+
+    def render(self, data, accepted_media_type=None, renderer_context=None):
+        return data
+
+
 class DocumentDownloadView(APIView):
+    renderer_classes = [DownloadRenderer]
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(
+        tags=["documents"],
+        summary="Download document",
+        responses={
+            (200, "application/octet-stream"): OpenApiResponse(
+                description="Returns the document as a downloadable binary file."
+            ),
+            403: OpenApiResponse(description="Document access denied."),
+            404: OpenApiResponse(description="Document or stored file not found."),
+        },
+    )
     def get(self, request, document_id):
         document, _ = get_authorized_document(
             request,
@@ -249,7 +301,6 @@ class DocumentDownloadView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-
         response = FileResponse(
             file_handle,
             as_attachment=True,
@@ -275,6 +326,15 @@ class DocumentDownloadView(APIView):
 class DocumentPermissionListCreateView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(
+        tags=["permissions"],
+        summary="List document permissions",
+        responses={
+            200: DocumentPermissionSerializer(many=True),
+            403: OpenApiResponse(description="Permission management access denied."),
+            404: OpenApiResponse(description="Document not found."),
+        },
+    )
     def get(self, request, document_id):
         document = get_object_or_404(Document, pk=document_id)
 
@@ -298,9 +358,34 @@ class DocumentPermissionListCreateView(APIView):
         )
         return Response(serializer.data)
 
+    @extend_schema(
+        tags=["permissions"],
+        summary="Grant or update document permission",
+        request={
+            "application/json": {
+                "type": "object",
+                "required": ["username", "access_level"],
+                "properties": {
+                    "username": {"type": "string"},
+                    "access_level": {
+                        "type": "string",
+                        "enum": ["READ", "EDIT"],
+                    },
+                },
+            }
+        },
+        responses={
+            200: DocumentPermissionSerializer,
+            201: DocumentPermissionSerializer,
+            400: OpenApiResponse(description="Invalid username or access level."),
+            403: OpenApiResponse(description="Permission management access denied."),
+            404: OpenApiResponse(description="Document not found."),
+        },
+    )
     def post(self, request, document_id):
         document = get_object_or_404(Document, pk=document_id)
 
+        # Only the document owner or an administrator may grant access.
         if document.owner_id != request.user.id and not is_admin(request.user):
             audit_denied(
                 request,
@@ -308,86 +393,123 @@ class DocumentPermissionListCreateView(APIView):
                 document_id=document.pk,
             )
             raise PermissionDenied(
-            "Only the document owner or an administrator can manage permissions."
+                "Only the document owner or an administrator can manage permissions."
             )
 
-        serializer = DocumentPermissionSerializer(
-            data=request.data,
-            context={
-                "request": request,
-                "document": document,
-            },
-        )
-        serializer.is_valid(raise_exception=True)
+        username = request.data.get("username")
+        access_level = request.data.get("access_level")
 
-        # Do not allow the caller to supply document or granted_by.
-        user = serializer.validated_data["user"]
-        access_level = serializer.validated_data["access_level"]
+        # Validate the submitted username.
+        if not isinstance(username, str) or not username.strip():
+            return Response(
+                {"username": ["Enter a valid username."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-        permission_record, created = DocumentPermission.objects.update_or_create(
-            document=document,
-            user=user,
-            defaults={
-                "access_level": access_level,
-                "granted_by": request.user,
-            },
-        )
-        output = DocumentPermissionSerializer(permission_record)
+        username = username.strip()
 
-        record_audit_event(
-            request=request,
-            action="PERMISSION_GRANT",
-            outcome=AuditEvent.Outcome.SUCCESS,
-            document_id=document.pk,
-            details={
-                "target_user_id": permission_record.user_id,
-                "access_level": permission_record.access_level,
-                "created": created,
-            },
-        )
+        # Validate the requested access level.
+        if access_level not in DocumentPermission.AccessLevel.values:
+            return Response(
+                {"access_level": ["Access level must be READ or EDIT."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-        return Response(
-            output.data,
-            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
-        )
+        User = get_user_model()
+        target_user = User.objects.filter(username=username).first()
+
+        if target_user is None:
+            return Response(
+                {"username": ["No existing user was found with that username."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if target_user.pk == document.owner_id:
+            return Response(
+                {"username": ["The document owner already has access."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        with transaction.atomic():
+            permission_record, created = DocumentPermission.objects.update_or_create(
+                document=document,
+                user=target_user,
+                defaults={
+                    "access_level": access_level,
+                    "granted_by": request.user,
+                },
+            )
+
+            output = DocumentPermissionSerializer(permission_record)
+
+            record_audit_event(
+                request=request,
+                action="PERMISSION_GRANT",
+                outcome=AuditEvent.Outcome.SUCCESS,
+                document_id=document.pk,
+                details={
+                    "target_user_id": permission_record.user_id,
+                    "access_level": permission_record.access_level,
+                    "created": created,
+                },
+            )
+
+            return Response(
+                output.data,
+                status=(status.HTTP_201_CREATED if created else status.HTTP_200_OK),
+            )
+
 
 class DocumentPermissionDetailView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(
+        tags=["permissions"],
+        summary="Revoke document permission",
+        responses={
+            204: OpenApiResponse(description="Permission revoked."),
+            403: OpenApiResponse(description="Permission management access denied."),
+            404: OpenApiResponse(description="Document or permission not found."),
+        },
+    )
     def delete(self, request, document_id, permission_id):
-        document = get_object_or_404(Document, pk=document_id)
+        document = get_object_or_404(
+            Document,
+            pk=document_id,
+        )
 
+        # Record denied attempts outside the transaction that may roll back.
         if document.owner_id != request.user.id and not is_admin(request.user):
             audit_denied(
                 request,
                 "PERMISSION_REVOKE",
                 document_id=document.pk,
             )
-
             raise PermissionDenied(
-                "Only the document owner or an administrator can revoke permissions."
+                "Only the document owner or an administrator " "can revoke permissions."
             )
 
-        permission_record = get_object_or_404(
-            DocumentPermission,
-            pk=permission_id,
-            document=document,
-        )
+        with transaction.atomic():
+            permission_record = get_object_or_404(
+                DocumentPermission,
+                pk=permission_id,
+                document=document,
+            )
 
-        revoked_user_id = permission_record.user_id
-        revoked_access_level = permission_record.access_level
+            revoked_user_id = permission_record.user_id
+            revoked_access_level = permission_record.access_level
 
-        permission_record.delete()
+            permission_record.delete()
 
-        record_audit_event(
-            request=request,
-            action="PERMISSION_REVOKE",
-            outcome=AuditEvent.Outcome.SUCCESS,
-            document_id=document.pk,
-            details={
-                "target_user_id": revoked_user_id,
-                "previous_access_level": revoked_access_level,
-            },
-        )
+            record_audit_event(
+                request=request,
+                action="PERMISSION_REVOKE",
+                outcome=AuditEvent.Outcome.SUCCESS,
+                document_id=document.pk,
+                details={
+                    "target_user_id": revoked_user_id,
+                    "previous_access_level": revoked_access_level,
+                },
+            )
 
-        return Response(status=status.HTTP_204_NO_CONTENT)
+            return Response(status=status.HTTP_204_NO_CONTENT)

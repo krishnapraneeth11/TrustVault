@@ -1,0 +1,610 @@
+openapi: 3.0.3
+info:
+  title: TrustVault API
+  version: 1.0.0
+  description: Secure document management with role-based access control, document-level
+    permissions, and auditable security events.
+paths:
+  /api/auth/admin/:
+    get:
+      operationId: auth_admin_retrieve
+      description: |-
+        GET /api/auth/admin/
+
+        Admin-only endpoint used to verify role-based access control.
+        Returns 403 for non-Admin authenticated users and 403 for unauthenticated
+        requests (DRF returns 403 when IsAuthenticated is the base class and the
+        user fails; IsAdmin adds the role check on top).
+      summary: Verify administrator access
+      tags:
+      - auth
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: Administrator access confirmed.
+        '403':
+          description: Administrator access denied.
+  /api/auth/csrf/:
+    get:
+      operationId: auth_csrf_retrieve
+      description: |-
+        GET /api/auth/csrf/
+
+        Sets the CSRF cookie and returns the token in the response body.
+        The SPA must call this endpoint once before making any POST/PUT/DELETE
+        requests. The token should be sent as the X-CSRFToken request header.
+
+        Authentication not required (AllowAny).
+      summary: Get CSRF token
+      tags:
+      - auth
+      security:
+      - {}
+      responses:
+        '200':
+          description: Returns the CSRF token and sets the CSRF cookie.
+  /api/auth/login/:
+    post:
+      operationId: auth_login_create
+      description: 'Submit credentials as {"username": "...", "password": "..."}.'
+      summary: Log in
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - username
+              - password
+              properties:
+                username:
+                  type: string
+                password:
+                  type: string
+                  format: password
+      security:
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+          description: ''
+        '400':
+          description: Invalid credentials or request.
+        '403':
+          description: Account is inactive.
+  /api/auth/logout/:
+    post:
+      operationId: auth_logout
+      description: Invalidates the authenticated user's session.
+      summary: Log out
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LogoutResponse'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LogoutResponse'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LogoutResponse'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogoutResponse'
+          description: ''
+        '403':
+          description: Authentication required.
+  /api/auth/me/:
+    get:
+      operationId: auth_me_retrieve
+      description: |-
+        GET /api/auth/me/
+
+        Returns the current authenticated user's data.
+        Unauthenticated requests receive 403.
+      summary: Get current user
+      tags:
+      - auth
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+          description: ''
+  /api/documents/:
+    get:
+      operationId: documents_list
+      tags:
+      - documents
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DocumentUpload'
+          description: ''
+    post:
+      operationId: documents_create
+      tags:
+      - documents
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/DocumentUpload'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/DocumentUpload'
+        required: true
+      security:
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DocumentUpload'
+          description: ''
+  /api/documents/{document_id}/:
+    get:
+      operationId: documents_retrieve
+      summary: Get document details
+      parameters:
+      - in: path
+        name: document_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - documents
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DocumentDetail'
+          description: ''
+        '403':
+          description: Document access denied.
+        '404':
+          description: Document not found.
+    patch:
+      operationId: documents_partial_update
+      summary: Update document metadata
+      parameters:
+      - in: path
+        name: document_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - documents
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedDocumentDetail'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedDocumentDetail'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedDocumentDetail'
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DocumentDetail'
+          description: ''
+        '403':
+          description: Edit permission required.
+        '404':
+          description: Document not found.
+    delete:
+      operationId: documents_destroy
+      summary: Delete document
+      parameters:
+      - in: path
+        name: document_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - documents
+      security:
+      - cookieAuth: []
+      responses:
+        '204':
+          description: Document deleted.
+        '403':
+          description: Only the owner can delete the document.
+        '404':
+          description: Document not found.
+  /api/documents/{document_id}/download/:
+    get:
+      operationId: documents_download_retrieve
+      summary: Download document
+      parameters:
+      - in: path
+        name: document_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - documents
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          description: Returns the document as a downloadable binary file.
+        '403':
+          description: Document access denied.
+        '404':
+          description: Document or stored file not found.
+  /api/documents/{document_id}/permissions/:
+    get:
+      operationId: documents_permissions_list
+      summary: List document permissions
+      parameters:
+      - in: path
+        name: document_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - permissions
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DocumentPermission'
+          description: ''
+        '403':
+          description: Permission management access denied.
+        '404':
+          description: Document not found.
+    post:
+      operationId: documents_permissions_create
+      summary: Grant or update document permission
+      parameters:
+      - in: path
+        name: document_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - permissions
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - username
+              - access_level
+              properties:
+                username:
+                  type: string
+                access_level:
+                  type: string
+                  enum:
+                  - READ
+                  - EDIT
+      security:
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DocumentPermission'
+          description: ''
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DocumentPermission'
+          description: ''
+        '400':
+          description: Invalid username or access level.
+        '403':
+          description: Permission management access denied.
+        '404':
+          description: Document not found.
+  /api/documents/{document_id}/permissions/{permission_id}/:
+    delete:
+      operationId: documents_permissions_destroy
+      summary: Revoke document permission
+      parameters:
+      - in: path
+        name: document_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: path
+        name: permission_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - permissions
+      security:
+      - cookieAuth: []
+      responses:
+        '204':
+          description: Permission revoked.
+        '403':
+          description: Permission management access denied.
+        '404':
+          description: Document or permission not found.
+components:
+  schemas:
+    AccessLevelEnum:
+      enum:
+      - READ
+      - EDIT
+      type: string
+      description: |-
+        * `READ` - Read
+        * `EDIT` - Edit
+    CategoryEnum:
+      enum:
+      - HR
+      - FINANCE
+      - LEGAL
+      - POLICIES
+      - GENERAL
+      type: string
+      description: |-
+        * `HR` - Human Resources
+        * `FINANCE` - Finance
+        * `LEGAL` - Legal
+        * `POLICIES` - Company Policies
+        * `GENERAL` - General
+    DocumentDetail:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        title:
+          type: string
+          maxLength: 255
+        category:
+          $ref: '#/components/schemas/CategoryEnum'
+        owner_username:
+          type: string
+          readOnly: true
+        original_filename:
+          type: string
+          readOnly: true
+        content_type:
+          type: string
+          readOnly: true
+        file_size:
+          type: integer
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - content_type
+      - created_at
+      - file_size
+      - id
+      - original_filename
+      - owner_username
+      - title
+      - updated_at
+    DocumentPermission:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        user:
+          type: integer
+        username:
+          type: string
+          readOnly: true
+        access_level:
+          $ref: '#/components/schemas/AccessLevelEnum'
+        granted_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - granted_at
+      - id
+      - user
+      - username
+    DocumentUpload:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        title:
+          type: string
+          maxLength: 255
+        category:
+          $ref: '#/components/schemas/CategoryEnum'
+        upload:
+          type: string
+          format: uri
+          writeOnly: true
+        original_filename:
+          type: string
+          readOnly: true
+        owner_username:
+          type: string
+          readOnly: true
+        content_type:
+          type: string
+          readOnly: true
+        file_size:
+          type: integer
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - content_type
+      - created_at
+      - file_size
+      - id
+      - original_filename
+      - owner_username
+      - title
+      - upload
+    LogoutResponse:
+      type: object
+      properties:
+        detail:
+          type: string
+      required:
+      - detail
+    PatchedDocumentDetail:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        title:
+          type: string
+          maxLength: 255
+        category:
+          $ref: '#/components/schemas/CategoryEnum'
+        owner_username:
+          type: string
+          readOnly: true
+        original_filename:
+          type: string
+          readOnly: true
+        content_type:
+          type: string
+          readOnly: true
+        file_size:
+          type: integer
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+    RoleEnum:
+      enum:
+      - ADMIN
+      - OWNER
+      - VIEWER
+      type: string
+      description: |-
+        * `ADMIN` - Admin
+        * `OWNER` - Owner
+        * `VIEWER` - Viewer
+    User:
+      type: object
+      description: |-
+        Read-safe representation of a User.
+
+        Exposed fields are safe for the authenticated user to see about themselves.
+        The role field is read-only — it cannot be changed via this serializer.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        username:
+          type: string
+          readOnly: true
+          description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
+            only.
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        first_name:
+          type: string
+          maxLength: 150
+        last_name:
+          type: string
+          maxLength: 150
+        role:
+          allOf:
+          - $ref: '#/components/schemas/RoleEnum'
+          readOnly: true
+          description: |-
+            Platform role. Only admins or superusers may change this. ADMIN: full access. OWNER: can upload and share. VIEWER: read-only.
+
+            * `ADMIN` - Admin
+            * `OWNER` - Owner
+            * `VIEWER` - Viewer
+        role_display:
+          type: string
+          readOnly: true
+        date_joined:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - date_joined
+      - email
+      - id
+      - role
+      - role_display
+      - username
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: sessionid

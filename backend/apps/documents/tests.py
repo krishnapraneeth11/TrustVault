@@ -11,8 +11,6 @@ from rest_framework.test import APITestCase
 
 from .models import Document, DocumentPermission
 
-
-
 User = get_user_model()
 
 
@@ -57,9 +55,7 @@ class DocumentUploadTests(APITestCase):
             ),
         )
 
-    @override_settings(
-        MEDIA_ROOT=tempfile.mkdtemp(prefix="trustvault-test-media-")
-    )
+    @override_settings(MEDIA_ROOT=tempfile.mkdtemp(prefix="trustvault-test-media-"))
     def test_authenticated_user_can_upload_text_file(self):
         self.client.force_authenticate(user=self.owner)
 
@@ -117,6 +113,7 @@ class DocumentUploadTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data), 0)
+
     def test_viewer_upload_is_denied_and_audited(self):
         viewer = User.objects.create_user(
             username="upload_viewer",
@@ -151,6 +148,8 @@ class DocumentUploadTests(APITestCase):
                 outcome=AuditEvent.Outcome.DENIED,
             ).exists()
         )
+
+
 class DocumentPermissionSecurityTests(APITestCase):
     def setUp(self):
         self.owner = User.objects.create_user(
@@ -186,9 +185,7 @@ class DocumentPermissionSecurityTests(APITestCase):
 
         self.detail_url = f"/api/documents/{self.document.id}/"
         self.download_url = f"/api/documents/{self.document.id}/download/"
-        self.permissions_url = (
-            f"/api/documents/{self.document.id}/permissions/"
-        )
+        self.permissions_url = f"/api/documents/{self.document.id}/permissions/"
 
     def test_unrelated_user_cannot_view_document_details(self):
         self.client.force_authenticate(user=self.viewer)
@@ -206,7 +203,7 @@ class DocumentPermissionSecurityTests(APITestCase):
         response = self.client.post(
             self.permissions_url,
             {
-                "user": self.viewer.pk,
+                "username": self.viewer.username,
                 "access_level": "READ",
             },
             format="json",
@@ -319,13 +316,14 @@ class DocumentPermissionSecurityTests(APITestCase):
             denied_response.status_code,
             status.HTTP_403_FORBIDDEN,
         )
+
         def test_read_permission_cannot_edit_document_metadata(self):
             DocumentPermission.objects.create(
                 document=self.document,
                 user=self.viewer,
                 access_level=DocumentPermission.AccessLevel.READ,
                 granted_by=self.owner,
-         )
+            )
 
         self.client.force_authenticate(user=self.viewer)
 
@@ -399,6 +397,7 @@ class DocumentPermissionSecurityTests(APITestCase):
             self.document.owner,
             self.owner,
         )
+
     def test_revoked_permission_immediately_blocks_download(self):
         permission_record = DocumentPermission.objects.create(
             document=self.document,
@@ -437,6 +436,8 @@ class DocumentPermissionSecurityTests(APITestCase):
             denied_response.status_code,
             status.HTTP_403_FORBIDDEN,
         )
+
+
 class DocumentAuditTests(APITestCase):
     def setUp(self):
         self.owner = User.objects.create_user(
@@ -464,9 +465,7 @@ class DocumentAuditTests(APITestCase):
         )
 
         self.detail_url = f"/api/documents/{self.document.pk}/"
-        self.download_url = (
-            f"/api/documents/{self.document.pk}/download/"
-        )
+        self.download_url = f"/api/documents/{self.document.pk}/download/"
 
     def test_authorized_document_read_creates_audit_event(self):
         self.client.force_authenticate(user=self.owner)
@@ -499,13 +498,14 @@ class DocumentAuditTests(APITestCase):
                 document_id=str(self.document.pk),
             ).exists()
         )
+
     def test_permission_grant_creates_audit_event(self):
         self.client.force_authenticate(user=self.owner)
 
         response = self.client.post(
             f"/api/documents/{self.document.pk}/permissions/",
             {
-                "user": self.viewer.pk,
+                "username": self.viewer.username,
                 "access_level": "READ",
             },
             format="json",
@@ -521,6 +521,7 @@ class DocumentAuditTests(APITestCase):
                 document_id=str(self.document.pk),
             ).exists()
         )
+
     def test_permission_revoke_creates_audit_event(self):
         permission_record = DocumentPermission.objects.create(
             document=self.document,
@@ -532,8 +533,7 @@ class DocumentAuditTests(APITestCase):
         self.client.force_authenticate(user=self.owner)
 
         response = self.client.delete(
-            f"/api/documents/{self.document.pk}/permissions/"
-            f"{permission_record.pk}/"
+            f"/api/documents/{self.document.pk}/permissions/" f"{permission_record.pk}/"
         )
 
         self.assertEqual(response.status_code, 204)
@@ -546,6 +546,7 @@ class DocumentAuditTests(APITestCase):
                 document_id=str(self.document.pk),
             ).exists()
         )
+
     def test_document_update_creates_audit_event(self):
         self.client.force_authenticate(user=self.owner)
 
@@ -565,12 +566,11 @@ class DocumentAuditTests(APITestCase):
                 document_id=str(self.document.pk),
             ).exists()
         )
+
     def test_unauthorized_user_cannot_view_permissions_and_attempt_is_audited(self):
         self.client.force_authenticate(user=self.viewer)
 
-        response = self.client.get(
-            f"/api/documents/{self.document.pk}/permissions/"
-        )
+        response = self.client.get(f"/api/documents/{self.document.pk}/permissions/")
 
         self.assertEqual(response.status_code, 403)
 
@@ -624,8 +624,7 @@ class DocumentAuditTests(APITestCase):
         self.client.force_authenticate(user=another_user)
 
         response = self.client.delete(
-            f"/api/documents/{self.document.pk}/permissions/"
-            f"{permission_record.pk}/"
+            f"/api/documents/{self.document.pk}/permissions/" f"{permission_record.pk}/"
         )
 
         self.assertEqual(response.status_code, 403)
@@ -662,9 +661,8 @@ class DocumentAuditTests(APITestCase):
             ).exists()
         )
 
-        self.assertTrue(
-            Document.objects.filter(pk=self.document.pk).exists()
-        )
+        self.assertTrue(Document.objects.filter(pk=self.document.pk).exists())
+
     def test_missing_file_download_creates_failure_audit_event(self):
         self.client.force_authenticate(user=self.owner)
 
