@@ -221,13 +221,16 @@ SPECTACULAR_SETTINGS = {
 }
 
 
-# ── Session ───────────────────────────────────────────────────────────────────
-SESSION_COOKIE_HTTPONLY = True  # Prevent JS access to session cookie
-SESSION_COOKIE_SAMESITE = "Lax"  # Prevent cross-site cookie sending
+# ── Session and CSRF Cookies ──────────────────────────────────────────────────
+# Required for authenticated requests between the deployed frontend and backend.
+# Both services use HTTPS on Render.
 
-# In production: set these to True and serve over HTTPS
-# SESSION_COOKIE_SECURE = True
-# CSRF_COOKIE_SECURE = True
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = "None"
+SESSION_COOKIE_SECURE = True
+
+CSRF_COOKIE_SAMESITE = "None"
+CSRF_COOKIE_SECURE = True
 
 
 # ── Security Headers (production) ─────────────────────────────────────────────
