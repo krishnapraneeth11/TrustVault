@@ -9,3 +9,4 @@ pytest-django==4.10.0
 coverage==7.8.0
 drf-spectacular==0.30.0
 gunicorn==23.0.0
+whitenoise==6.12.0
