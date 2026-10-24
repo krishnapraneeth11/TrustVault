@@ -19,8 +19,8 @@
 
 /* 3. Brand design tokens
    All tv-* tokens are available as:
-     - Tailwind utility classes (bg-tv-carbon, text-tv-mint, border-tv-border, â€¦)
-     - CSS custom properties (var(--color-tv-carbon), var(--color-tv-mint), â€¦)
+     - Tailwind utility classes (bg-tv-carbon, text-tv-mint, border-tv-border, …)
+     - CSS custom properties (var(--color-tv-carbon), var(--color-tv-mint), …)
    ========================================================================== */
 @theme {
   /* â”€â”€ Colour palette â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
@@ -437,6 +437,92 @@
     cursor: not-allowed;
   }
 
+  /* Document table action buttons — compact icon buttons */
+  .tv-doc-action-btn {
+    width: 36px;
+    height: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background-color: transparent;
+    border: 1px solid rgba(87, 242, 179, 0.2);
+    border-radius: 8px;
+    color: var(--tv-mint, #57f2b3);
+    cursor: pointer;
+    transition:
+      border-color 180ms ease,
+      background-color 180ms ease,
+      color 180ms ease,
+      transform 100ms ease;
+    position: relative;
+    overflow: visible;
+    flex-shrink: 0;
+  }
+
+  .tv-doc-action-btn:hover {
+    background-color: rgba(87, 242, 179, 0.06);
+    border-color: rgba(87, 242, 179, 0.4);
+  }
+
+  .tv-doc-action-btn:active {
+    transform: scale(0.95);
+  }
+
+  .tv-doc-action-btn:focus-visible {
+    outline: 2px solid var(--tv-mint, #57f2b3);
+    outline-offset: 2px;
+    border-radius: 8px;
+  }
+
+  .tv-doc-action-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  .tv-doc-action-btn svg {
+    width: 18px;
+    height: 18px;
+    transition: transform 180ms ease;
+  }
+
+  .tv-doc-action-btn:hover svg {
+    transform: scale(1.08);
+  }
+
+  /* Shared tooltip styling for icon action buttons */
+  .tv-doc-action-btn .tv-tooltip {
+    position: absolute;
+    top: -34px;
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: rgba(25, 31, 28, 0.95);
+    color: var(--tv-text, #f1f5f9);
+    font-size: 11px;
+    font-weight: 600;
+    padding: 5px 10px;
+    border-radius: 5px;
+    white-space: nowrap;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+    z-index: 10;
+    border: 1px solid rgba(87, 242, 179, 0.2);
+  }
+
+  .tv-doc-action-btn:hover .tv-tooltip,
+  .tv-doc-action-btn:focus-visible .tv-tooltip {
+    opacity: 1;
+  }
+
+  /* Ensure Delete tooltip matches */
+  .deleteButton .tooltip {
+    top: -34px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10;
+  }
+
   /* TrustVault loading animation — adapted from Uiverse */
   .newtons-cradle {
     --uib-size: 50px;
@@ -821,6 +907,19 @@
     justify-content: center;
     width: 16px;
     font-size: 15px;
+
+    svg {
+      width: 18px;
+      height: 18px;
+      color: var(--tv-muted, #9ca8a1);
+      transition: color 180ms ease;
+      stroke: currentColor;
+    }
+
+    .tv-sidebar-link:hover svg,
+    .tv-sidebar-link.active svg {
+      color: var(--tv-mint, #57f2b3);
+    }
   }
 
   .tv-sidebar-footer {

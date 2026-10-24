@@ -23,11 +23,43 @@ export default function AppLayout() {
   }
 
   const navigationItems = [
-    { label: 'Dashboard', path: '/', icon: '▦' },
-    { label: 'My Documents', path: '/documents', icon: '▤' },
-    { label: 'Access Management', path: '/access-management', icon: '♧' },
+    {
+      label: 'Dashboard',
+      path: '/',
+      icon: (
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M3 12L12 3l9 9M5 10v10h6m0 0v-6h2m-2 6h2m-2 0l1.5-6m-1.5 6l-1.5-6m1.5 6V10" />
+        </svg>
+      ),
+    },
+    {
+      label: 'My Documents',
+      path: '/documents',
+      icon: (
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14c.631 0 1.166-.489 1.45-1.125M19.5 14l-2.25-1.5v-3.5a2.25 2.25 0 00-2.25-2.25h-1.5a2.25 2.25 0 00-2.25 2.25v3.5l-2.25 1.5m6-3.5l-2.25 1.5v3.5a2.25 2.25 0 01-2.25 2.25h-6a2.25 225 0 01-2.25-2.25v-3.5l2.25-1.5m6 5.25v1.5m-3 3h6m-3 0v-1.5" />
+        </svg>
+      ),
+    },
+    {
+      label: 'Access Management',
+      path: '/access-management',
+      icon: (
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10v10.59m7.59-5.59l-7.59 7.59-7.59-7.59h15.18z" />
+        </svg>
+      ),
+    },
     ...(user?.role === 'ADMIN'
-      ? [{ label: 'Employee Management', path: '/employees', icon: '♙' }]
+      ? [{
+          label: 'Employee Management',
+          path: '/employees',
+          icon: (
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M18 9v6a2 2 0 01-2 2h-4a2 2 0 01-2-2V9a2 2 0 114 0v4m0 0v2m0-2h-.01M12 15v2m-6-2v2a2 2 0 01-2 2h0a2 2 0 01-2-2v-4m14-6h-.01m0 0a2 2 0 110 4 2 2 0 010-4m0 0V7a2 2 0 10-4 0v1.5M9 14.5l.01-.015M15 7h.01M15 7a2 2 0 11-4 0 2 2 0 014 0z" />
+            </svg>
+          ),
+        }]
       : []),
   ];
 
