@@ -4,6 +4,7 @@ Secure Documents. Verified Access.
 
 TrustVault is a security-focused document management and sharing application built with Django REST Framework and React. It combines role-based access control, document-level permissions, protected document downloads, and a tamper-evident audit trail.
 
+This project was developed as an individual software engineering hiring challenge, with an emphasis on server-side authorization, security testing, and transparent threat documentation.
 
 Features
 
@@ -428,3 +429,5 @@ Review deployment settings, authorization behavior, and the threat analysis in T
 Deployment
 
 The live deployment may take a little time to respond on its first request if the hosting service has put the free instance to sleep. If the page or API is slow to load initially, wait briefly and retry.
+
+Built as an individual software engineering hiring challenge.
